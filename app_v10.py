@@ -226,7 +226,7 @@ def parse_pasted_chain(text: str):
     out["last"]   = df[col_ultimo].apply(br_to_float)
     out["expiration"] = df[col_venc].apply(parse_date_br)
     out["impliedVol"] = df[col_iv].apply(pct_to_float) if col_iv else np.nan
-    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan  # <-- fix aqui
+    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan
 
     out = out[pd.notna(out["strike"]) & pd.notna(out["expiration"])].copy()
     return out.reset_index(drop=True)
@@ -276,24 +276,6 @@ st.markdown(strike_html, unsafe_allow_html=True)
 
 # 3) Sidebar: parâmetros & regras
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
-
-# Explicação geral (sem mudar lógica)
-with st.sidebar.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
-    st.markdown("""
-**Volatilidade (HV20 %)**: proxy de σ. **Maior →** prêmios tendem a subir **e** probabilidade de exercício ↑. **Menor →** prêmios ↓ e probabilidade ↓.  
-**Taxa r (anual %)**: efeito pequeno no PoE/preço teórico; use algo próximo da SELIC.  
-**Ações em carteira**: usado só para **validar a CALL coberta** (✅/❌). Mais ações → mais lotes cobertos.  
-**Caixa disponível (R$)**: usado só para **validar a PUT coberta** (✅/❌) no strike da PUT.  
-**Tamanho do contrato**: multiplica o **prêmio total** e os **requisitos de cobertura** (ações/caixa).  
-**Alerta de saída (dias)**: define quando mostrar aviso de tempo. **Menor →** alerta aparece mais cedo.  
-**Meta de captura (%)**: alvo para encerrar com lucro. **Maior →** você tende a esperar mais.  
-**Janela no strike (±%)**: sensibilidade para avisos de “encostar” no strike. **Maior →** mais avisos; **menor →** só quando muito perto.  
-**Limite por perna**: quantos strikes por lado entram na combinação. **Maior →** mais candidatos (mais lento).  
-**Prob. máx por perna / média**: filtros “duros”. **Menor →** setups mais conservadores (pode zerar a lista).  
-**Penalização (α)**: quão forte o ranking pune probabilidade alta. **Maior →** prioriza PoE baixa, mesmo com prêmio menor.  
-**Filtro por |Δ|**: quando ligado, tende a reduzir exercício mantendo prêmios razoáveis.  
-**Largura mínima (%)**: força pares com strikes mais afastados. **Maior →** menor risco, menos candidatos.
-""")
 
 hv20_default = float(hv20_auto) if pd.notna(hv20_auto) else 20.0
 hv20_input = st.sidebar.number_input(
@@ -360,7 +342,7 @@ max_poe_leg  = st.sidebar.slider(
 ) / 100.0
 max_poe_comb = st.sidebar.slider(
     "Prob. média máx (PUT/CALL) (%)", 5, 50, 20, step=1,
-    help="Filtro 'duro' para a média da probabilidade das duas pernas. ↓ prioriza setups com menor chance de exercício combinada."
+    help="Filtro 'duro' para a média da probabilidade das duas pernas. ↓ prioriza Setups com menor chance de exercício combinada."
 ) / 100.0
 alpha        = st.sidebar.slider(
     "Penalização por prob. (α)", 1, 5, 2, step=1,
@@ -530,7 +512,7 @@ top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{
 top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
 top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
 top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
-top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")  # <-- fix do rótulo
+top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")
 
 def tag_risco(row):
     tags = []
@@ -658,6 +640,27 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 🎯 Capturou ~<b>{meta_captura}%</b> do crédito? <b>Encerre a operação</b> para garantir o ganho.
 </p>
 """, unsafe_allow_html=True)
+
+# =========================
+# ℹ️ Guia de parâmetros (movido para o final)
+# =========================
+st.markdown("---")
+with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
+    st.markdown("""
+**Volatilidade (HV20 %)**: proxy de σ. **Maior →** prêmios tendem a subir e probabilidade de exercício ↑. **Menor →** prêmios ↓ e probabilidade ↓.  
+**Taxa r (anual %)**: efeito pequeno no PoE/preço teórico; use algo próximo da SELIC.  
+**Ações em carteira**: usado só para **validar a CALL coberta** (✅/❌). Mais ações → mais lotes cobertos.  
+**Caixa disponível (R$)**: usado só para **validar a PUT coberta** (✅/❌) no strike da PUT.  
+**Tamanho do contrato**: multiplica o **prêmio total** e os **requisitos de cobertura** (ações/caixa).  
+**Alerta de saída (dias)**: define quando mostrar aviso de tempo. **Menor →** alerta aparece mais cedo.  
+**Meta de captura (%)**: alvo para encerrar com lucro. **Maior →** você tende a esperar mais.  
+**Janela no strike (±%)**: sensibilidade para avisos de “encostar” no strike. **Maior →** mais avisos; **menor →** só quando muito perto.  
+**Limite por perna**: quantos strikes por lado entram na combinação. **Maior →** mais candidatos (mais lento).  
+**Prob. máx por perna / média**: filtros “duros”. **Menor →** setups mais conservadores (pode zerar a lista).  
+**Penalização (α)**: quão forte o ranking pune probabilidade alta. **Maior →** prioriza PoE baixa, mesmo com prêmio menor.  
+**Filtro por |Δ|**: quando ligado, tende a reduzir exercício mantendo prêmios razoáveis.  
+**Largura mínima (%)**: força pares com strikes mais afastados. **Maior →** menor risco, menos candidatos.
+""")
 
 # Rodapé
 st.markdown("---")
