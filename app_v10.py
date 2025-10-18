@@ -27,12 +27,6 @@ st.markdown("""
 .strike-card{padding:.75rem 1rem; border:1px solid; border-radius:12px;}
 .strike-label{font-size:.95rem; margin-bottom:.15rem; opacity:.85;}
 .strike-value{font-size:1.6rem; font-weight:800;}
-/* Guia (expander) */
-.param-guide {line-height:1.45;}
-.param-guide ul{margin:.25rem 0 .75rem 1.25rem; padding:0;}
-.param-guide li{margin:.35rem 0;}
-.param-guide .ex{display:block; opacity:.9; margin:.15rem 0 0 0;}
-.param-guide .chip{display:inline-block; padding:.05rem .4rem; border:1px solid #d1d5db; border-radius:9999px; font-size:.85em; margin-left:.25rem;}
 @media (prefers-color-scheme: light) {
   .strike-card{ background:#fafafa; border-color:#e5e7eb; }
   .strike-label{ color:#4b5563; }
@@ -42,7 +36,6 @@ st.markdown("""
   .strike-card{ background:#111827; border-color:#374151; }
   .strike-label{ color:#d1d5db; }
   .strike-value{ color:#f9fafb; }
-  .param-guide .chip{border-color:#374151;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -609,7 +602,7 @@ for i, rw in top3.iterrows():
         if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
             st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
 
-        # Explicações (HTML leve p/ evitar quebras)
+        # Explicações por sugestão
         with st.expander("📘 O que significa cada item?"):
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
@@ -620,111 +613,90 @@ for i, rw in top3.iterrows():
             poe_call_txt     = (f"{100*rw['poe_call']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_call"]) else "—"
 
             st.markdown(f"""
-<p><b>Crédito/ação</b><br>
-É o total que você recebe ao vender <b>1 PUT</b> + <b>1 CALL</b> (por ação).<br>
-<b>Exemplo desta sugestão:</b> PUT paga <b>{premio_put_txt}</b> e CALL paga <b>{premio_call_txt}</b> → crédito/ação = <b>{credito_acao_txt}</b>.
-</p>
+**Crédito/ação**  
+É o total que você recebe ao vender **1 PUT + 1 CALL** (por ação).  
+**Exemplo desta sugestão:** PUT paga **{premio_put_txt}** e CALL paga **{premio_call_txt}** → crédito/ação = **{credito_acao_txt}**.
 
-<p><b>Break-evens (mín–máx)</b><br>
-Faixa de preço no vencimento em que o resultado ainda é maior ou igual a zero.<br>
-<b>Exemplo desta sugestão:</b> <b>{be_low_txt} — {be_high_txt}</b>.
-</p>
+**Break-evens (mín–máx)**  
+Faixa de preço no vencimento em que o resultado ainda é ≥ 0.  
+**Exemplo:** **{be_low_txt} — {be_high_txt}**.
 
-<p><b>Probabilidade de exercício (PUT / CALL)</b><br>
-Estimativa (modelo Black–Scholes) de cada opção terminar dentro do dinheiro no vencimento.<br>
-<b>Exemplo desta sugestão:</b> PUT <b>{poe_put_txt}</b> (chance do preço ficar <i>abaixo</i> do strike da PUT) / CALL <b>{poe_call_txt}</b> (chance do preço ficar <i>acima</i> do strike da CALL).
-</p>
+**Probabilidade de exercício (PUT / CALL)**  
+Estimativa (modelo Black–Scholes) de cada opção terminar no dinheiro no vencimento.  
+**Exemplo:** PUT **{poe_put_txt}** (chance do preço ficar *abaixo* do strike da PUT) / CALL **{poe_call_txt}** (chance do preço ficar *acima* do strike da CALL).
 
-<p><b>Lotes e prêmio total</b><br>
-Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract_size} ações</b>.<br>
-<b>Prêmio total</b> = <b>crédito/ação × contrato × lotes</b>.<br>
-<b>Exemplo com os valores acima:</b> {credito_acao_txt} × {effective_contract_size} × {lots} → <b>{format_brl(rw["credito"] * effective_contract_size * lots)}</b>.
-</p>
+**Lotes e prêmio total**  
+Cada lote = vender **1 PUT + 1 CALL**. Cada contrato = **{effective_contract_size} ações**.  
+**Prêmio total** = **crédito/ação × contrato × lotes**.  
+**Exemplo:** {credito_acao_txt} × {effective_contract_size} × {lots} → **{format_brl(rw["credito"] * effective_contract_size * lots)}**.
 
-<p><b>Regras práticas de saída</b><br>
-⏳ Faltando <b>{dias_alerta}</b> dias ou menos, acompanhe com mais atenção.<br>
-📈 Se o preço à vista encostar no strike da CALL, <b>recompre a CALL</b>.<br>
-🎯 Capturou ~<b>{meta_captura}%</b> do crédito? <b>Encerre a operação</b> para garantir o ganho.
-</p>
-""", unsafe_allow_html=True)
+**Regras práticas de saída**  
+⏳ Faltando **{dias_alerta}** dias ou menos, acompanhe com mais atenção.  
+📈 Se o preço à vista encostar no strike da CALL, **recompre a CALL**.  
+🎯 Capturou ~**{meta_captura}%** do crédito? **Encerre a operação**.
+""")
 
 # =========================
-# ℹ️ Guia de parâmetros (movido para o final) — HTML estável
+# ℹ️ Guia de parâmetros (final) — Markdown puro
 # =========================
 st.markdown("---")
 with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
     st.markdown("""
-<div class="param-guide">
-  <p><strong>Exemplo de referência:</strong> spot = <b>R$ 6,00</b>, strikes <b>Kp = 5,50</b> / <b>Kc = 6,50</b>, crédito/ação = <b>R$ 0,18</b>, 1 contrato = <b>100 ações</b>, 2 lotes.</p>
+**Exemplo de referência:** spot = **R$ 6,00**, strikes **Kp = 5,50 / Kc = 6,50**, crédito/ação = **R$ 0,18**, 1 contrato = **100 ações**, 2 lotes.
 
-  <ul>
-    <li><strong>Volatilidade (HV20 %)</strong> — proxy da volatilidade anual (σ).
-      <span class="ex">Aumentar: prêmios ↑ e probabilidade de exercício (PoE) ↑. &nbsp; Diminuir: prêmios ↓ e PoE ↓.<br>
-      <b>Ex.:</b> HV20 <b>20%</b> → <b>30%</b>: crédito pode ir de <b>R$ 0,18</b> → <b>R$ 0,22</b>, mas PoE PUT/CALL sobe ~<b>3–5 p.p.</b></span>
-    </li>
+- **Volatilidade (HV20 %)** — proxy da volatilidade anual (σ).  
+  **Aumentar:** prêmios ↑ e probabilidade de exercício (PoE) ↑.  
+  **Diminuir:** prêmios ↓ e PoE ↓.  
+  **Ex.:** HV20 **20% → 30%**: crédito pode ir de **R$ 0,18 → R$ 0,22**, mas PoE PUT/CALL sobe ~**3–5 p.p.**
 
-    <li><strong>Taxa r (anual %)</strong> — taxa livre de risco no Black–Scholes (efeito pequeno).
-      <span class="ex">Aumentar/Diminuir: impacto pequeno em PoE/preço teórico.<br>
-      <b>Ex.:</b> <b>10%</b> → <b>12%</b>: variações de <b>centavos</b> no crédito; PoE quase inalterado.</span>
-    </li>
+- **Taxa r (anual %)** — taxa livre de risco no Black–Scholes (efeito pequeno).  
+  **Aumentar/Diminuir:** impacto pequeno em PoE e preço teórico.  
+  **Ex.:** **10% → 12%**: variações de **centavos** no crédito; PoE quase inalterado.
 
-    <li><strong>Ações em carteira</strong> — valida <b>CALL coberta</b> (✅/❌).
-      <span class="ex">Aumentar: permite vender mais lotes cobertos.<br>
-      <b>Ex.:</b> 1 contrato = 100 ações; com <b>2 lotes</b> ⇒ precisa <b>200 ações</b> para CALL coberta.</span>
-    </li>
+- **Ações em carteira** — valida **CALL coberta** (✅/❌).  
+  **Aumentar:** permite vender mais lotes cobertos.  
+  **Ex.:** 1 contrato = **100 ações**; com **2 lotes** ⇒ precisa **200 ações** para CALL coberta.
 
-    <li><strong>Caixa disponível (R$)</strong> — valida <b>PUT coberta</b> (✅/❌) no <b>strike da PUT</b>.
-      <span class="ex">Aumentar: viabiliza mais lotes de PUT coberta.<br>
-      <b>Ex.:</b> <b>Kp = 5,50</b>, 2 lotes ⇒ precisa <b>R$ 1.100</b> (2 × 100 × 5,50).</span>
-    </li>
+- **Caixa disponível (R$)** — valida **PUT coberta** (✅/❌) no **strike da PUT**.  
+  **Aumentar:** viabiliza mais lotes de PUT coberta.  
+  **Ex.:** **Kp = 5,50**, **2 lotes** ⇒ precisa **R$ 1.100** (2 × 100 × 5,50).
 
-    <li><strong>Tamanho do contrato</strong> — nº de ações por contrato.
-      <span class="ex">Aumentar: <b>prêmio total</b> ↑ e <b>exigências de cobertura</b> ↑.<br>
-      <b>Ex.:</b> crédito/ação <b>R$ 0,18</b>, contrato <b>100</b> ⇒ por lote = <b>R$ 18</b>; com 2 lotes ⇒ <b>R$ 36</b>.</span>
-    </li>
+- **Tamanho do contrato** — nº de ações por contrato.  
+  **Aumentar:** **prêmio total** ↑ e **exigências de cobertura** ↑.  
+  **Ex.:** crédito/ação **R$ 0,18**, contrato **100** ⇒ por lote = **R$ 18**; com **2 lotes** ⇒ **R$ 36**.
 
-    <li><strong>Alerta de saída (dias)</strong> — quando exibir aviso pelo tempo restante.
-      <span class="ex">Diminuir: o alerta aparece mais cedo.<br>
-      <b>Ex.:</b> com <b>7 dias</b>, ao faltar ≤ <b>7</b> dias aparece o ⏳.</span>
-    </li>
+- **Alerta de saída (dias)** — quando exibir aviso pelo tempo restante.  
+  **Diminuir:** o alerta aparece mais cedo.  
+  **Ex.:** com **7 dias**, ao faltar **≤ 7** dias aparece o ⏳.
 
-    <li><strong>Meta de captura do crédito (%)</strong> — alvo didático para encerrar com lucro.
-      <span class="ex">Aumentar: você tende a esperar mais.<br>
-      <b>Ex.:</b> crédito <b>R$ 0,18</b>, meta <b>75%</b> ⇒ objetivo ≈ <b>R$ 0,135</b> por ação capturado.</span>
-    </li>
+- **Meta de captura do crédito (%)** — alvo didático para encerrar com lucro.  
+  **Aumentar:** você tende a esperar mais.  
+  **Ex.:** crédito **R$ 0,18**, meta **75%** ⇒ objetivo ≈ **R$ 0,135** por ação capturado.
 
-    <li><strong>Janela no strike (±%)</strong> — sensibilidade para avisos de “encostar” no strike.
-      <span class="ex">Aumentar: mais avisos. &nbsp; Diminuir: aviso só quando muito perto.<br>
-      <b>Ex.:</b> Kc <b>6,50</b>, janela <b>±5%</b> ⇒ aviso se spot entre <b>6,18–6,83</b>.</span>
-    </li>
+- **Janela no strike (±%)** — sensibilidade para avisos de “encostar” no strike.  
+  **Aumentar:** mais avisos. **Diminuir:** aviso só quando muito perto.  
+  **Ex.:** **Kc = 6,50**, janela **±5%** ⇒ aviso se spot entre **6,18–6,83**.
 
-    <li><strong>Limite por perna (combinações)</strong> — nº de strikes por lado cruzados em pares.
-      <span class="ex">Aumentar: mais candidatos (app <b>mais lento</b>).<br>
-      <b>Ex.:</b> <b>30</b> → <b>100</b>: varre mais PUTs/CALLs, pode revelar pares melhores (leva mais tempo).</span>
-    </li>
+- **Limite por perna (combinações)** — nº de strikes por lado cruzados em pares.  
+  **Aumentar:** mais candidatos (app **mais lento**).  
+  **Ex.:** **30 → 100**: varre mais PUTs/CALLs, pode revelar pares melhores (leva mais tempo).
 
-    <li><strong>Prob. máx por perna / média</strong> — <b>filtros duros</b> de PoE.
-      <span class="ex">Diminuir: setups mais conservadores; pode zerar a lista.<br>
-      <b>Ex.:</b> média máx <b>20%</b> ⇒ descarta pares com PoE média &gt; <b>20%</b>.</span>
-    </li>
+- **Prob. máx por perna / média** — **filtros duros** de PoE.  
+  **Diminuir:** setups mais conservadores; pode zerar a lista.  
+  **Ex.:** média máx **20%** ⇒ descarta pares com PoE média **> 20%**.
 
-    <li><strong>Penalização (α) no ranking</strong> — peso da punição para PoE alta no <b>score</b>.
-      <span class="ex">Aumentar: prioriza <b>ficar entre strikes (p_inside)</b>, mesmo com prêmio menor.<br>
-      <b>Ex.:</b> α <b>2</b> → <b>4</b>: pares com <b>p_inside</b> maior sobem no ranking.</span>
-    </li>
+- **Penalização (α) no ranking** — peso da punição para PoE alta no **score**.  
+  **Aumentar:** prioriza **ficar entre strikes (p_inside)**, mesmo com prêmio menor.  
+  **Ex.:** **α 2 → 4**: pares com **p_inside** maior sobem no ranking.
 
-    <li><strong>Filtro por |Δ| (0,10–0,25)</strong> — restringe a deltas típicos de OTM “saudável” (se disponível).
-      <span class="ex">Ativar: tende a reduzir PoE mantendo prêmios razoáveis.<br>
-      <b>Ex.:</b> CALL com |Δ| <b>0,35</b> seria filtrada; |Δ| <b>0,18</b> passaria.</span>
-    </li>
+- **Filtro por |Δ| (0,10–0,25)** — restringe a deltas típicos de OTM “saudável” (se disponível).  
+  **Ativar:** tende a reduzir PoE mantendo prêmios razoáveis.  
+  **Ex.:** CALL com |Δ| **0,35** seria filtrada; |Δ| **0,18** passaria.
 
-    <li><strong>Largura mínima entre strikes (% do spot)</strong> — exige distância mínima entre <b>Kp</b> e <b>Kc</b>.
-      <span class="ex">Aumentar: menos risco (pares mais “largos”), menos candidatos.<br>
-      <b>Ex.:</b> spot <b>R$ 6,00</b>, largura <b>6%</b> ⇒ <b>Kc − Kp ≥ 0,36</b>.</span>
-    </li>
-  </ul>
-</div>
-""", unsafe_allow_html=True)
+- **Largura mínima entre strikes (% do spot)** — exige distância mínima entre **Kp** e **Kc**.  
+  **Aumentar:** menos risco (pares mais “largos”), menos candidatos.  
+  **Ex.:** spot **R$ 6,00**, largura **6%** ⇒ **Kc − Kp ≥ 0,36**.
+""")
 
 # Rodapé
 st.markdown("---")
