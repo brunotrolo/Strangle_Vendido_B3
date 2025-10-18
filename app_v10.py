@@ -2,10 +2,16 @@
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9
 # - Lista de tickers da B3 (dadosdemercado.com.br) com busca por nome/código
-# - Preço via yfinance mostrado como "Strike" (somente leitura, grande)
+# - Preço via yfinance mostrado em card grande (somente leitura)
 # - HV20 (proxy) e r (anual) no menu lateral
 # - Colar a option chain (opcoes.net) e selecionar vencimento
 # - Sugestões (Top 3): tabela + cartões didáticos (inclui prêmio PUT/CALL e total)
+# - Ajustes aplicados (1-5):
+#   (1) Validação de cobertura (ações/caixa) com avisos
+#   (2) Uso do contract_size da sidebar em todos os cálculos/exibições
+#   (3) Rótulo do card grande alterado para "Preço à vista (yfinance)"
+#   (4) Slider "comb_limit" para definir limite por perna (antes fixo em 30)
+#   (5) Alertas automáticos (dias para vencimento e janela no strike) na Top 3 e nos cartões
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -31,7 +37,7 @@ st.markdown("""
 .big-title {font-size:1.15rem; font-weight:700; margin: 0 0 .25rem 0;}
 .small-help {color:var(--text-color-secondary, #6b7280); font-size:.95rem; margin: 0 0 .5rem 0;}
 
-/* Cartão do Strike responsivo a light/dark */
+/* Cartão do Preço à Vista responsivo a light/dark */
 .strike-card{padding:.75rem 1rem; border:1px solid; border-radius:12px;}
 .strike-label{font-size:.95rem; margin-bottom:.15rem; opacity:.85;}
 .strike-value{font-size:1.6rem; font-weight:800;}
@@ -53,7 +59,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-CONTRACT_SIZE = 100  # tamanho padrão de contrato B3
+CONTRACT_SIZE = 100  # tamanho padrão de contrato B3 (default)
 CACHE_TTL = 300      # 5 minutos
 
 # -------------------------
@@ -282,13 +288,13 @@ else:
     sel_row = tickers_df.loc[tickers_df["label"] == sel_label].iloc[0]
     user_ticker = sel_row["ticker"]
 
-# 2) Preço via yfinance mostrado como STRIKE grande (somente leitura)
+# 2) Preço via yfinance mostrado em card grande (somente leitura)
 y_ticker = yahoo_symbol_from_b3(user_ticker)
 spot, hv20_auto = fetch_yf_price_and_hv20(y_ticker)
 
 strike_html = f"""
 <div class="strike-card">
-  <div class="strike-label">Strike (preço à vista via yfinance)</div>
+  <div class="strike-label">Preço à vista (yfinance)</div>
   <div class="strike-value">{format_brl(spot)}</div>
 </div>
 """
@@ -313,6 +319,10 @@ contract_size = st.sidebar.number_input(f"Tamanho do contrato ({user_ticker})", 
 st.sidebar.markdown("---")
 dias_alerta = st.sidebar.number_input("Alerta de saída (dias para o vencimento) ≤", min_value=1, max_value=30, value=7)
 meta_captura = st.sidebar.number_input("Meta de captura do crédito (%)", min_value=50, max_value=100, value=75)
+janela_pct = st.sidebar.number_input("Janela de alerta no strike (±%)", min_value=1, max_value=20, value=5)
+
+st.sidebar.markdown("---")
+comb_limit = st.sidebar.slider("Limite por perna para cruzar pares (velocidade)", 10, 200, 30, step=10)
 
 # 4) Colar a option chain
 st.subheader(f"3) Colar a option chain de {user_ticker} (opcoes.net)")
@@ -374,9 +384,9 @@ def poe_side(row, side):
 puts["poe"]  = puts.apply(lambda rw: poe_side(rw, "P"), axis=1)
 calls["poe"] = calls.apply(lambda rw: poe_side(rw, "C"), axis=1)
 
-# Combinações PUT x CALL (limitadas para velocidade)
-puts_small  = puts.sort_values(["price"], ascending=False).head(30).copy()
-calls_small = calls.sort_values(["price"], ascending=False).head(30).copy()
+# 7) Combinações PUT x CALL (limitadas para velocidade) — agora configurável
+puts_small  = puts.sort_values(["price"], ascending=False).head(comb_limit).copy()
+calls_small = calls.sort_values(["price"], ascending=False).head(comb_limit).copy()
 
 pairs = []
 for _, prow in puts_small.iterrows():
@@ -415,29 +425,50 @@ if pairs_df.empty:
 pairs_df["score"] = pairs_df["credito"] * (1.0 - ((pairs_df["poe_put"].fillna(0)+pairs_df["poe_call"].fillna(0))/2.0))
 pairs_df = pairs_df.sort_values(["score","credito"], ascending=[False, False]).reset_index(drop=True)
 
+# 8) Top 3 + flags de alerta
 top3 = pairs_df.head(3).copy()
+top3["days_to_exp"] = bus_days
+
+def near_strike(price, strike, pct):
+    try:
+        return abs(price - strike) <= (strike * (pct/100.0))
+    except Exception:
+        return False
+
+top3["alert_call"] = top3.apply(lambda r: near_strike(S, r["Kc"], janela_pct), axis=1)
+top3["alert_put"]  = top3.apply(lambda r: near_strike(S, r["Kp"], janela_pct), axis=1)
+top3["alert_days"] = top3["days_to_exp"] <= dias_alerta
 
 # --- Tabela Top 3 (inclui prêmio PUT, CALL e total) ---
 top3_display = top3.copy()
-top3_display["Prêmio PUT (R$)"]  = top3_display["premio_put"].map(lambda x: f"{x:.2f}")
-top3_display["Prêmio CALL (R$)"] = top3_display["premio_call"].map(lambda x: f"{x:.2f}")
+top3_display["Prêmio PUT (R$)"]   = top3_display["premio_put"].map(lambda x: f"{x:.2f}")
+top3_display["Prêmio CALL (R$)"]  = top3_display["premio_call"].map(lambda x: f"{x:.2f}")
 top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{x:.2f}")
 top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
 top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
 top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
+top3_display["Alertas"] = top3_display.apply(
+    lambda r: "".join([
+        "⏳" if r["alert_days"] else "",
+        " 🔺" if r["alert_call"] else "",
+        " 🔻" if r["alert_put"] else "",
+    ]).strip(),
+    axis=1
+)
 top3_display = top3_display[[
     "PUT","Kp",
     "CALL","Kc",
     "Prêmio PUT (R$)","Prêmio CALL (R$)","Crédito/ação (R$)",
     "Break-evens (mín–máx)",
-    "Prob. exercício PUT (%)","Prob. exercício CALL (%)"
+    "Prob. exercício PUT (%)","Prob. exercício CALL (%)",
+    "Alertas"
 ]]
 top3_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
 
 st.subheader("🏆 Top 3 (melhor prêmio/risco)")
 st.dataframe(top3_display, use_container_width=True, hide_index=True)
 
-# 8) Cartões detalhados (mantidos)
+# 9) Cartões detalhados
 st.markdown("—")
 st.subheader("📋 Recomendações detalhadas")
 
@@ -453,7 +484,9 @@ for i, rw in top3.iterrows():
     lots = st.number_input(f"#{rank} — Lotes (1 lote = 1 PUT + 1 CALL)", min_value=0, max_value=10000, value=st.session_state["lot_map"][i], key=key_lotes)
     st.session_state["lot_map"][i] = lots
 
-    premio_total = rw["credito"] * CONTRACT_SIZE * lots
+    # (2) usar o contract_size efetivo fornecido pelo usuário
+    effective_contract_size = int(contract_size) if contract_size else CONTRACT_SIZE
+    premio_total = rw["credito"] * effective_contract_size * lots
 
     with st.container(border=True):
         st.markdown(
@@ -464,19 +497,41 @@ for i, rw in top3.iterrows():
         c2.metric("Break-evens (mín–máx)", f"{rw['be_low']:.2f} — {rw['be_high']:.2f}")
         c3.metric("Prob. exercício (PUT / CALL)", f"{100*rw['poe_put']:.1f}% / {100*rw['poe_call']:.1f}%")
 
+        # (1) Cobertura: quantos ativos/caixa necessários para os lotes escolhidos
+        required_shares = effective_contract_size * lots
+        required_cash   = rw["Kp"] * effective_contract_size * lots
+        covered_call = qty_shares >= required_shares
+        covered_put  = (cash_avail_val if pd.notna(cash_avail_val) else 0.0) >= required_cash
+
+        cov_msg = f"🛡️ Cobertura — CALL: {'✅' if covered_call else '❌'}  ·  PUT: {'✅' if covered_put else '❌'}"
+        st.caption(cov_msg)
+        if not covered_call or not covered_put:
+            st.warning(
+                f"Cobertura insuficiente para {lots} lote(s): "
+                f"precisa de **{required_shares} ações** e **{format_brl(required_cash)} em caixa** "
+                f"(CALL usa ações; PUT usa caixa no strike da PUT)."
+            )
+
         d1, d2 = st.columns([1.1, 2.0])
         d1.metric("🎯 Prêmio estimado (total)", format_brl(premio_total))
         d2.markdown(
             f"**Cálculo:** `crédito/ação × contrato × lotes` = "
-            f"`{rw['credito']:.2f} × {CONTRACT_SIZE} × {lots}` → **{format_brl(premio_total)}**"
+            f"`{rw['credito']:.2f} × {effective_contract_size} × {lots}` → **{format_brl(premio_total)}**"
         )
+
+        # (5) Alertas operacionais no cartão (dias e janela de strike)
+        if bus_days <= dias_alerta:
+            st.info(f"⏳ Faltam {bus_days} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
+        if abs(S - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
+            st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
+        if abs(S - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
+            st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
 
         # ===========================
         # 📘 O que significa cada item?
-        # (somente ajuste de formatação e linguagem leiga; sem alterar lógica)
+        # (usa HTML leve e números pré-formatados para evitar quebras de Markdown)
         # ===========================
         with st.expander("📘 O que significa cada item?"):
-            # Ajuste de formatação: valores pré-formatados e HTML leve para evitar quebras de Markdown
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
             credito_acao_txt = format_brl(rw["credito"])
@@ -502,9 +557,9 @@ Estimativa (modelo Black–Scholes) de cada opção terminar dentro do dinheiro 
 </p>
 
 <p><b>Lotes e prêmio total</b><br>
-Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{CONTRACT_SIZE} ações</b>.<br>
+Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract_size} ações</b>.<br>
 <b>Prêmio total</b> = <b>crédito/ação × contrato × lotes</b>.<br>
-<b>Exemplo com os valores acima:</b> {credito_acao_txt} × {CONTRACT_SIZE} × {lots} → <b>{format_brl(rw["credito"] * CONTRACT_SIZE * lots)}</b>.
+<b>Exemplo com os valores acima:</b> {credito_acao_txt} × {effective_contract_size} × {lots} → <b>{format_brl(rw["credito"] * effective_contract_size * lots)}</b>.
 </p>
 
 <p><b>Regras práticas de saída</b><br>
