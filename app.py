@@ -476,31 +476,43 @@ for i, rw in top3.iterrows():
         # (somente ajuste de formatação e linguagem leiga; sem alterar lógica)
         # ===========================
         with st.expander("📘 O que significa cada item?"):
-            st.markdown(
-                f"""
-**Crédito/ação**  
-É o total que você recebe ao vender **1 PUT** + **1 CALL** *(por ação)*.  
-**Exemplo desta sugestão:** PUT paga **R$ {rw['premio_put']:.2f}** e CALL paga **R$ {rw['premio_call']:.2f}** → **crédito/ação = R$ {rw['credito']:.2f}**.
+            # Ajuste de formatação: valores pré-formatados e HTML leve para evitar quebras de Markdown
+            premio_put_txt   = format_brl(rw["premio_put"])
+            premio_call_txt  = format_brl(rw["premio_call"])
+            credito_acao_txt = format_brl(rw["credito"])
+            be_low_txt       = f"{rw['be_low']:.2f}".replace(".", ",")
+            be_high_txt      = f"{rw['be_high']:.2f}".replace(".", ",")
+            poe_put_txt      = (f"{100*rw['poe_put']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_put"]) else "—"
+            poe_call_txt     = (f"{100*rw['poe_call']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_call"]) else "—"
 
-**Break-evens (mín–máx)**  
-Faixa de preço no vencimento em que o resultado ainda é **maior ou igual a zero**.  
-**Exemplo desta sugestão:** **{rw['be_low']:.2f} — {rw['be_high']:.2f}**.
+            st.markdown(f"""
+<p><b>Crédito/ação</b><br>
+É o total que você recebe ao vender <b>1 PUT</b> + <b>1 CALL</b> (por ação).<br>
+<b>Exemplo desta sugestão:</b> PUT paga <b>{premio_put_txt}</b> e CALL paga <b>{premio_call_txt}</b> → crédito/ação = <b>{credito_acao_txt}</b>.
+</p>
 
-**Probabilidade de exercício (PUT / CALL)**  
-Estimativa (modelo Black–Scholes) de cada opção terminar **dentro do dinheiro** no vencimento.  
-**Exemplo desta sugestão:** PUT **{100*rw['poe_put']:.1f}%** *(chance do preço ficar **abaixo** do strike da PUT)* / CALL **{100*rw['poe_call']:.1f}%** *(chance do preço ficar **acima** do strike da CALL)*.
+<p><b>Break-evens (mín–máx)</b><br>
+Faixa de preço no vencimento em que o resultado ainda é maior ou igual a zero.<br>
+<b>Exemplo desta sugestão:</b> <b>{be_low_txt} — {be_high_txt}</b>.
+</p>
 
-**Lotes e prêmio total**  
-Cada **lote** = vender **1 PUT + 1 CALL**. Cada **contrato** = **{CONTRACT_SIZE} ações**.  
-**Prêmio total** = **crédito/ação × contrato × lotes**.  
-**Exemplo com os valores acima:** `{rw['credito']:.2f} × {CONTRACT_SIZE} × {lots}` → **{format_brl(premio_total)}**.
+<p><b>Probabilidade de exercício (PUT / CALL)</b><br>
+Estimativa (modelo Black–Scholes) de cada opção terminar dentro do dinheiro no vencimento.<br>
+<b>Exemplo desta sugestão:</b> PUT <b>{poe_put_txt}</b> (chance do preço ficar <i>abaixo</i> do strike da PUT) / CALL <b>{poe_call_txt}</b> (chance do preço ficar <i>acima</i> do strike da CALL).
+</p>
 
-**Regras práticas de saída**  
-⏳ Faltando **{dias_alerta}** dias ou menos, acompanhe com mais atenção.  
-📈 Se o **preço à vista** encostar no **strike da CALL**, **recompre a CALL**.  
-🎯 Capturou **~{meta_captura}%** do crédito? **Encerre a operação** para garantir o ganho.
-"""
-            )
+<p><b>Lotes e prêmio total</b><br>
+Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{CONTRACT_SIZE} ações</b>.<br>
+<b>Prêmio total</b> = <b>crédito/ação × contrato × lotes</b>.<br>
+<b>Exemplo com os valores acima:</b> {credito_acao_txt} × {CONTRACT_SIZE} × {lots} → <b>{format_brl(rw["credito"] * CONTRACT_SIZE * lots)}</b>.
+</p>
+
+<p><b>Regras práticas de saída</b><br>
+⏳ Faltando <b>{dias_alerta}</b> dias ou menos, acompanhe com mais atenção.<br>
+📈 Se o preço à vista encostar no strike da CALL, <b>recompre a CALL</b>.<br>
+🎯 Capturou ~<b>{meta_captura}%</b> do crédito? <b>Encerre a operação</b> para garantir o ganho.
+</p>
+""", unsafe_allow_html=True)
 
 # Rodapé leve
 st.markdown("---")
