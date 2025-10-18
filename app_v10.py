@@ -1,4 +1,4 @@
-# app_v10.1.py
+# app_v10.5.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # ------------------------------------------------------------
@@ -277,29 +277,13 @@ st.markdown(strike_html, unsafe_allow_html=True)
 # 3) Sidebar: parâmetros & regras
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
 
-# Explicação geral (sem mudar lógica)
-with st.sidebar.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
-    st.markdown("""
-**Volatilidade (HV20 %)**: proxy de σ. **Maior →** prêmios tendem a subir **e** probabilidade de exercício ↑. **Menor →** prêmios ↓ e probabilidade ↓.  
-**Taxa r (anual %)**: efeito pequeno no PoE/preço teórico; use algo próximo da SELIC.  
-**Ações em carteira**: usado só para **validar a CALL coberta** (✅/❌). Mais ações → mais lotes cobertos.  
-**Caixa disponível (R$)**: usado só para **validar a PUT coberta** (✅/❌) no strike da PUT.  
-**Tamanho do contrato**: multiplica o **prêmio total** e os **requisitos de cobertura** (ações/caixa).  
-**Alerta de saída (dias)**: define quando mostrar aviso de tempo. **Menor →** alerta aparece mais cedo.  
-**Meta de captura (%)**: alvo para encerrar com lucro. **Maior →** você tende a esperar mais.  
-**Janela no strike (±%)**: sensibilidade para avisos de “encostar” no strike. **Maior →** mais avisos; **menor →** só quando muito perto.  
-**Limite por perna**: quantos strikes por lado entram na combinação. **Maior →** mais candidatos (mais lento).  
-**Prob. máx por perna / média**: filtros “duros”. **Menor →** setups mais conservadores (pode zerar a lista).  
-**Penalização (α)**: quão forte o ranking pune probabilidade alta. **Maior →** prioriza PoE baixa, mesmo com prêmio menor.  
-**Filtro por |Δ|**: quando ligado, tende a reduzir exercício mantendo prêmios razoáveis.  
-**Largura mínima (%)**: força pares com strikes mais afastados. **Maior →** menor risco, menos candidatos.
-""")
+# >>> Removido o expander explicativo do sidebar (conforme solicitado) <<<
 
 hv20_default = float(hv20_auto) if pd.notna(hv20_auto) else 20.0
 hv20_input = st.sidebar.number_input(
     "HV20 (σ anual – proxy) [%]",
     0.0, 200.0, hv20_default, step=0.10, format="%.2f",
-    help="Volatilidade histórica anualizada de 20 dias (proxy de σ). ↑ aumenta prêmios e também a probabilidade de exercício."
+    help="Volatilidade histórica anualizada de 20 dias (proxy de σ). Aumentar eleva prêmios e também a probabilidade de exercício."
 )
 r_input = st.sidebar.number_input(
     "r (anual) [%]",
@@ -311,12 +295,12 @@ st.sidebar.markdown("---")
 qty_shares = st.sidebar.number_input(
     f"Ações em carteira ({user_ticker})",
     0, 1_000_000, 0, step=100,
-    help="Usado só para validar CALL coberta (✅/❌). Mais ações permitem mais lotes cobertos."
+    help="Usado apenas para validar CALL coberta (✅/❌). Mais ações permitem mais lotes cobertos."
 )
 cash_avail = st.sidebar.text_input(
     f"Caixa disponível (R$) ({user_ticker})",
     value="0,00",
-    help="Usado só para validar PUT coberta (✅/❌) no strike da PUT. Mais caixa permite mais lotes."
+    help="Usado apenas para validar PUT coberta (✅/❌) no strike da PUT. Mais caixa permite mais lotes."
 )
 try:
     cash_avail_val = br_to_float(cash_avail)
@@ -332,39 +316,39 @@ st.sidebar.markdown("---")
 dias_alerta = st.sidebar.number_input(
     "Alerta de saída (dias para o vencimento) ≤",
     1, 30, 7,
-    help="Mostra aviso de tempo quando faltar ≤ este número de dias. Valores menores disparam alerta mais cedo."
+    help="Mostra aviso de tempo quando faltar menos ou igual a este número de dias. Valores menores disparam alerta mais cedo."
 )
 meta_captura = st.sidebar.number_input(
     "Meta de captura do crédito (%)",
     50, 100, 75,
-    help="Alvo didático para encerrar a operação com lucro. ↑ significa esperar capturar uma fração maior do crédito."
+    help="Alvo didático para encerrar a operação com lucro. Valores maiores significam esperar capturar uma fração maior do crédito."
 )
 janela_pct = st.sidebar.number_input(
     "Janela de alerta no strike (±%)",
     1, 20, 5,
-    help="Sensibilidade para avisos de 'encostar' no strike. ↑ mais avisos (janela larga); ↓ só quando muito perto."
+    help="Sensibilidade para avisos de 'encostar' no strike. Maior: mais avisos; menor: somente quando muito perto."
 )
 
 st.sidebar.markdown("---")
 comb_limit = st.sidebar.slider(
     "Limite por perna para cruzar pares (velocidade)",
     10, 200, 30, step=10,
-    help="Quantos strikes por lado entram na combinação (impacta cobertura da busca e desempenho). ↑ mais combinações (mais lento)."
+    help="Quantos strikes por lado entram na combinação (impacta cobertura da busca e desempenho). Aumentar gera mais combinações (mais lento)."
 )
 
 # ---------- Novos controles (priorizar baixa probabilidade) ----------
 st.sidebar.markdown("### 🎯 Preferência por Baixa Probabilidade")
 max_poe_leg  = st.sidebar.slider(
     "Prob. máx por perna (%)", 5, 50, 25, step=1,
-    help="Filtro 'duro' por perna (PUT e CALL). ↓ deixa o app mais conservador, pode reduzir fortemente os candidatos."
+    help="Filtro 'duro' por perna (PUT e CALL). Diminuir deixa o app mais conservador e pode reduzir fortemente os candidatos."
 ) / 100.0
 max_poe_comb = st.sidebar.slider(
     "Prob. média máx (PUT/CALL) (%)", 5, 50, 20, step=1,
-    help="Filtro 'duro' para a média da probabilidade das duas pernas. ↓ prioriza setups com menor chance de exercício combinada."
+    help="Filtro 'duro' para a média da probabilidade das duas pernas. Diminuir prioriza setups com menor chance de exercício combinada."
 ) / 100.0
 alpha        = st.sidebar.slider(
     "Penalização por prob. (α)", 1, 5, 2, step=1,
-    help="Peso da punição do ranking sobre probabilidades altas. ↑ prioriza ainda mais PoE baixa mesmo se o prêmio for menor."
+    help="Peso da punição do ranking sobre probabilidades altas. Aumentar prioriza ainda mais PoE baixa mesmo se o prêmio for menor."
 )
 use_delta_filter = st.sidebar.checkbox(
     "Filtrar por |Δ| ~ 0,10–0,25 (se disponível)", value=True,
@@ -372,7 +356,7 @@ use_delta_filter = st.sidebar.checkbox(
 )
 min_width_pct = st.sidebar.slider(
     "Largura mínima entre strikes (% do spot)", 1, 20, 6, step=1,
-    help="Exige distância mínima entre Kp e Kc. ↑ força pares mais 'largos' (menor risco), mas reduz candidatos."
+    help="Exige distância mínima entre Kp e Kc. Aumentar força pares mais 'largos' (menor risco), mas reduz candidatos."
 ) / 100.0
 
 # 4) Colar a option chain
@@ -658,6 +642,87 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 🎯 Capturou ~<b>{meta_captura}%</b> do crédito? <b>Encerre a operação</b> para garantir o ganho.
 </p>
 """, unsafe_allow_html=True)
+
+# =========================
+# ℹ️ Guia (final) — texto do antigo sidebar movido para baixo
+# =========================
+st.markdown("---")
+with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
+    st.markdown("""
+**Exemplo de referência**  
+- Spot: R$ 6,00  
+- Kp (PUT): R$ 5,50  
+- Kc (CALL): R$ 6,50  
+- Crédito/ação: R$ 0,18  
+- Contrato: 100 ações  
+- Lotes: 2
+
+**Volatilidade (HV20 %)**  
+- O que é: medida da oscilação recente do preço (proxy da volatilidade anual).  
+- Aumentar: prêmios sobem e a probabilidade de exercício (PoE) sobe.  
+- Diminuir: prêmios caem e a PoE cai.  
+- Exemplo: HV20 20% -> 30%: crédito de R$ 0,18 -> R$ 0,22; PoE PUT/CALL +3 a +5 p.p.
+
+**Taxa r (anual %)**  
+- O que é: taxa livre de risco usada no Black–Scholes.  
+- Efeito: impacto pequeno sobre PoE e preço teórico.  
+- Exemplo: 10% -> 12%: variação de poucos centavos no crédito; PoE quase inalterado.
+
+**Ações em carteira**  
+- O que é: valida CALL coberta (✅/❌).  
+- Aumentar: permite vender mais lotes cobertos.  
+- Exemplo: 1 contrato = 100 ações; 2 lotes exigem 200 ações.
+
+**Caixa disponível (R$)**  
+- O que é: valida PUT coberta (✅/❌) no strike da PUT.  
+- Aumentar: viabiliza mais lotes de PUT coberta.  
+- Exemplo: Kp = 5,50; 2 lotes -> precisa de R$ 1.100 (2 x 100 x 5,50).
+
+**Tamanho do contrato**  
+- O que é: número de ações por contrato.  
+- Aumentar: eleva o prêmio total e as exigências de cobertura.  
+- Exemplo: crédito/ação R$ 0,18 x 100 = R$ 18 por lote; com 2 lotes = R$ 36.
+
+**Alerta de saída (dias)**  
+- O que é: define quando o aviso de tempo aparece.  
+- Diminuir: o alerta aparece mais cedo.  
+- Exemplo: com 7 dias, o aviso surge quando faltar <= 7 dias.
+
+**Meta de captura do crédito (%)**  
+- O que é: alvo para encerrar com lucro.  
+- Aumentar: você tende a esperar capturar mais do crédito.  
+- Exemplo: crédito R$ 0,18 x 75% = R$ 0,135 por ação.
+
+**Janela no strike (±%)**  
+- O que é: sensibilidade para avisos de “encostar” no strike.  
+- Aumentar: mais avisos; Diminuir: só quando muito perto.  
+- Exemplo: Kc = 6,50; janela 5% -> alerta se spot entre 6,18 e 6,83.
+
+**Limite por perna (combinações)**  
+- O que é: quantos strikes por lado entram no cruzamento de pares.  
+- Aumentar: mais candidatos; processamento mais lento.  
+- Exemplo: 30 -> 100 combinações: cobre mais opções, mas leva mais tempo.
+
+**Prob. máx por perna / média**  
+- O que é: filtros “duros” de PoE.  
+- Diminuir: setups mais conservadores (pode zerar a lista).  
+- Exemplo: média máx 20% -> descarta pares com PoE média > 20%.
+
+**Penalização (α) no ranking**  
+- O que é: peso que pune PoE alta no score.  
+- Aumentar: prioriza segurança (PoE baixa), mesmo com prêmio menor.  
+- Exemplo: α = 2 -> 4: pares com p_inside maior sobem no ranking.
+
+**Filtro por |Δ| (0,10 – 0,25)**  
+- O que é: restringe a deltas típicos de OTM “saudável” (se disponível).  
+- Ativar: reduz chance de exercício mantendo prêmio razoável.  
+- Exemplo: CALL com |Δ| 0,35 é descartada; |Δ| 0,18 passa.
+
+**Largura mínima entre strikes (% do spot)**  
+- O que é: exige distância mínima entre Kp e Kc.  
+- Aumentar: reduz risco (pares mais “largos”), mas há menos candidatos.  
+- Exemplo: spot R$ 6,00; largura 6% -> Kc - Kp >= 0,36.
+""")
 
 # Rodapé
 st.markdown("---")
