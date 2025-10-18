@@ -471,32 +471,36 @@ for i, rw in top3.iterrows():
             f"`{rw['credito']:.2f} × {CONTRACT_SIZE} × {lots}` → **{format_brl(premio_total)}**"
         )
 
-with st.expander("📘 O que significa cada item?"):
-    st.markdown(
-        f"""
+        # ===========================
+        # 📘 O que significa cada item?
+        # (somente ajuste de formatação e linguagem leiga; sem alterar lógica)
+        # ===========================
+        with st.expander("📘 O que significa cada item?"):
+            st.markdown(
+                f"""
 **Crédito/ação**  
-É o total que você recebe ao vender **1 PUT** + **1 CALL** (por **ação**).  
-*Exemplo prático desta sugestão:* **PUT paga R$ {rw['premio_put']:.2f}** e **CALL paga R$ {rw['premio_call']:.2f}** → **crédito/ação = R$ {rw['credito']:.2f}**.
+É o total que você recebe ao vender **1 PUT** + **1 CALL** *(por ação)*.  
+**Exemplo desta sugestão:** PUT paga **R$ {rw['premio_put']:.2f}** e CALL paga **R$ {rw['premio_call']:.2f}** → **crédito/ação = R$ {rw['credito']:.2f}**.
 
 **Break-evens (mín–máx)**  
-Faixa de preço no vencimento em que o resultado ainda é **≥ 0**.  
-*Exemplo desta sugestão:* **{rw['be_low']:.2f} — {rw['be_high']:.2f}**.
+Faixa de preço no vencimento em que o resultado ainda é **maior ou igual a zero**.  
+**Exemplo desta sugestão:** **{rw['be_low']:.2f} — {rw['be_high']:.2f}**.
 
 **Probabilidade de exercício (PUT / CALL)**  
-Chance estimada (modelo Black–Scholes) de cada opção terminar **dentro do dinheiro** no vencimento.  
-*Exemplo desta sugestão:* **PUT {100*rw['poe_put']:.1f}%** (chance de o preço ficar **abaixo** do strike da PUT) / **CALL {100*rw['poe_call']:.1f}%** (chance de o preço ficar **acima** do strike da CALL).
+Estimativa (modelo Black–Scholes) de cada opção terminar **dentro do dinheiro** no vencimento.  
+**Exemplo desta sugestão:** PUT **{100*rw['poe_put']:.1f}%** *(chance do preço ficar **abaixo** do strike da PUT)* / CALL **{100*rw['poe_call']:.1f}%** *(chance do preço ficar **acima** do strike da CALL)*.
 
 **Lotes e prêmio total**  
-Cada **lote** = vender **1 PUT + 1 CALL**. Cada contrato = **{CONTRACT_SIZE} ações**.  
+Cada **lote** = vender **1 PUT + 1 CALL**. Cada **contrato** = **{CONTRACT_SIZE} ações**.  
 **Prêmio total** = **crédito/ação × contrato × lotes**.  
-*Exemplo com os valores acima:* `{rw['credito']:.2f} × {CONTRACT_SIZE} × {lots}` → **{format_brl(premio_total)}**.
+**Exemplo com os valores acima:** `{rw['credito']:.2f} × {CONTRACT_SIZE} × {lots}` → **{format_brl(premio_total)}**.
 
 **Regras práticas de saída**  
 ⏳ Faltando **{dias_alerta}** dias ou menos, acompanhe com mais atenção.  
 📈 Se o **preço à vista** encostar no **strike da CALL**, **recompre a CALL**.  
 🎯 Capturou **~{meta_captura}%** do crédito? **Encerre a operação** para garantir o ganho.
 """
-    )
+            )
 
 # Rodapé leve
 st.markdown("---")
