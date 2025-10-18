@@ -1,4 +1,4 @@
-# app_v10.5.py
+# app_v10.99.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # ------------------------------------------------------------
@@ -138,7 +138,7 @@ def fetch_b3_tickers():
             cl = c.lower()
             if code_col is None and ("código" in cl or "codigo" in cl or "ticker" in cl or "símbolo" in cl or "simbolo" in cl or cl=="cód."):
                 code_col = c
-            if name_col is None and ("empresa" in cl or "razão" in cl or "razao" in cl or "nome" in cl or "companhia" in cl):
+            if name_col is None and ("empresa" in cl ou "razão" in cl or "razao" in cl or "nome" in cl or "companhia" in cl):
                 name_col = c
         if code_col is None:
             code_col = best.columns[0]
@@ -277,8 +277,6 @@ st.markdown(strike_html, unsafe_allow_html=True)
 # 3) Sidebar: parâmetros & regras
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
 
-# >>> Removido o expander explicativo do sidebar (conforme solicitado) <<<
-
 hv20_default = float(hv20_auto) if pd.notna(hv20_auto) else 20.0
 hv20_input = st.sidebar.number_input(
     "HV20 (σ anual – proxy) [%]",
@@ -359,17 +357,44 @@ min_width_pct = st.sidebar.slider(
     help="Exige distância mínima entre Kp e Kc. Aumentar força pares mais 'largos' (menor risco), mas reduz candidatos."
 ) / 100.0
 
-# 4) Colar a option chain
+# 4) Colar a option chain (com formulário para mobile)
 st.subheader(f"3) Colar a option chain de {user_ticker} (opcoes.net)")
-pasted = st.text_area(
-    "Cole aqui a tabela (Ctrl/Cmd+C no site → Ctrl/Cmd+V aqui)",
-    height=220,
-    help="A tabela precisa conter: Ticker, Vencimento, Tipo (CALL/PUT), Strike, Último, (opcional) Vol. Impl. (%), Delta."
-)
+
+# estado para manter a última tabela confirmada
+if "pasted_chain" not in st.session_state:
+    st.session_state["pasted_chain"] = ""
+
+with st.form("chain_form", clear_on_submit=False):
+    pasted_input = st.text_area(
+        "Cole aqui a tabela (em celular: cole e toque em 'Confirmar')",
+        value=st.session_state["pasted_chain"],
+        height=220,
+        help=(
+            "A tabela precisa conter: Ticker, Vencimento, Tipo (CALL/PUT), "
+            "Strike, Último, (opcional) Vol. Impl. (%), Delta."
+        ),
+    )
+    c1, c2 = st.columns(2)
+    confirm = c1.form_submit_button("✅ Confirmar")
+    clear   = c2.form_submit_button("🧹 Limpar")
+
+# atualiza o estado conforme o botão
+if confirm:
+    st.session_state["pasted_chain"] = pasted_input
+elif clear:
+    st.session_state["pasted_chain"] = ""
+    pasted_input = ""
+
+# usa sempre o conteúdo confirmado
+pasted = st.session_state["pasted_chain"]
+
+if not pasted.strip():
+    st.info("Cole a tabela do opcoes.net e toque em **Confirmar** para continuar.")
+    st.stop()
 
 df_chain = parse_pasted_chain(pasted)
 if df_chain.empty:
-    st.info("Cole a tabela para continuar.")
+    st.error("Não consegui interpretar a tabela colada. Verifique se os títulos/colunas vieram corretamente e toque em **Confirmar** novamente.")
     st.stop()
 
 # 5) Selecionar vencimento
@@ -604,7 +629,7 @@ for i, rw in top3.iterrows():
         if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
             st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
 
-        # Explicações (HTML leve p/ evitar quebras)
+        # Explicações por sugestão
         with st.expander("📘 O que significa cada item?"):
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
