@@ -2,16 +2,22 @@
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9
 # - Lista de tickers da B3 (dadosdemercado.com.br) com busca por nome/código
-# - Preço via yfinance mostrado em card grande (somente leitura)
+# - Preço à vista via yfinance em card grande (somente leitura)
 # - HV20 (proxy) e r (anual) no menu lateral
 # - Colar a option chain (opcoes.net) e selecionar vencimento
 # - Sugestões (Top 3): tabela + cartões didáticos (inclui prêmio PUT/CALL e total)
-# - Ajustes aplicados (1-5):
-#   (1) Validação de cobertura (ações/caixa) com avisos
-#   (2) Uso do contract_size da sidebar em todos os cálculos/exibições
-#   (3) Rótulo do card grande alterado para "Preço à vista (yfinance)"
-#   (4) Slider "comb_limit" para definir limite por perna (antes fixo em 30)
-#   (5) Alertas automáticos (dias para vencimento e janela no strike) na Top 3 e nos cartões
+# - Ajustes aplicados:
+#   [A] Validação de cobertura (ações/caixa) com avisos
+#   [B] Uso do contract_size da sidebar em todos os cálculos/exibições
+#   [C] Rótulo do card grande: "Preço à vista (yfinance)"
+#   [D] Slider "comb_limit" (antes era 30 fixo)
+#   [E] Alertas automáticos (dias e janela % no strike) na Top 3 e cartões
+#   [F] Priorização por baixa probabilidade:
+#       (F1) Filtros duros por probabilidade por perna e combinada
+#       (F2) Novo score com p_inside = 1 - poe_put - poe_call e penalização α
+#       (F3) Filtro por faixa de |Δ| quando disponível
+#       (F4) Largura mínima entre strikes (% do spot)
+#       (F5) Badge "Notas" na Top 3
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -30,43 +36,34 @@ import math
 # -------------------------
 st.set_page_config(page_title="Strangle Vendido Coberto — v9", page_icon="💼", layout="wide")
 
-# CSS para melhorar legibilidade de títulos/strike
+# CSS para legibilidade
 st.markdown("""
 <style>
-/* Tipografia geral dos títulos */
 .big-title {font-size:1.15rem; font-weight:700; margin: 0 0 .25rem 0;}
 .small-help {color:var(--text-color-secondary, #6b7280); font-size:.95rem; margin: 0 0 .5rem 0;}
-
-/* Cartão do Preço à Vista responsivo a light/dark */
 .strike-card{padding:.75rem 1rem; border:1px solid; border-radius:12px;}
 .strike-label{font-size:.95rem; margin-bottom:.15rem; opacity:.85;}
 .strike-value{font-size:1.6rem; font-weight:800;}
-
-/* Light mode (claro) */
 @media (prefers-color-scheme: light) {
   .strike-card{ background:#fafafa; border-color:#e5e7eb; }
-  .strike-label{ color:#4b5563; }   /* slate-600 */
-  .strike-value{ color:#111827; }   /* gray-900 */
+  .strike-label{ color:#4b5563; }
+  .strike-value{ color:#111827; }
 }
-
-/* Dark mode (escuro) */
 @media (prefers-color-scheme: dark) {
-  .strike-card{ background:#111827; border-color:#374151; } /* gray-900 / gray-700 */
-  .strike-label{ color:#d1d5db; }   /* gray-300 */
-  .strike-value{ color:#f9fafb; }   /* gray-50  */
+  .strike-card{ background:#111827; border-color:#374151; }
+  .strike-label{ color:#d1d5db; }
+  .strike-value{ color:#f9fafb; }
 }
 </style>
 """, unsafe_allow_html=True)
 
-
-CONTRACT_SIZE = 100  # tamanho padrão de contrato B3 (default)
-CACHE_TTL = 300      # 5 minutos
+CONTRACT_SIZE = 100  # padrão B3
+CACHE_TTL = 300      # 5 min
 
 # -------------------------
 # Utilitários
 # -------------------------
 def br_to_float(s: str):
-    """Converte número pt-BR (com vírgula) para float. Aceita str/float/None."""
     if s is None or (isinstance(s, float) and np.isnan(s)):
         return np.nan
     if isinstance(s, (int, float)):
@@ -81,12 +78,10 @@ def br_to_float(s: str):
         return np.nan
 
 def pct_to_float(s: str):
-    """Converte '27,5' ou '27.5' para 0.275 (fração)."""
     val = br_to_float(s)
     return val / 100.0 if pd.notna(val) else np.nan
 
 def parse_date_br(d: str):
-    """dd/mm/aaaa -> yyyy-mm-dd"""
     if pd.isna(d):
         return None
     d = str(d).strip()
@@ -269,7 +264,7 @@ def business_days_between(d1: date, d2: date):
 st.title("💼 Strangle Vendido Coberto — v9")
 st.caption("Cole a option chain do opcoes.net, escolha o vencimento e veja as sugestões didáticas de strangle coberto.")
 
-# 1) Seleção de ticker por nome/código
+# 1) Seleção de ticker
 st.markdown('<div class="big-title">🔎 Selecione pelo nome da empresa ou ticker</div><div class="small-help">Digite para pesquisar por nome ou código.</div>', unsafe_allow_html=True)
 tickers_df = fetch_b3_tickers()
 if tickers_df.empty:
@@ -278,17 +273,13 @@ if tickers_df.empty:
 else:
     tickers_df["label"] = tickers_df["ticker"] + " — " + tickers_df["empresa"]
     default_idx = int((tickers_df["ticker"] == "PETR4").idxmax()) if "PETR4" in set(tickers_df["ticker"]) else 0
-    sel_label = st.selectbox(
-        " ",  # label vazio (mostramos nosso título customizado acima)
-        options=tickers_df["label"].tolist(),
-        index=default_idx if default_idx is not None else 0,
-        help="",
-        label_visibility="collapsed"
-    )
+    sel_label = st.selectbox(" ", options=tickers_df["label"].tolist(),
+                             index=default_idx if default_idx is not None else 0,
+                             label_visibility="collapsed")
     sel_row = tickers_df.loc[tickers_df["label"] == sel_label].iloc[0]
     user_ticker = sel_row["ticker"]
 
-# 2) Preço via yfinance mostrado em card grande (somente leitura)
+# 2) Preço via yfinance (spot)
 y_ticker = yahoo_symbol_from_b3(user_ticker)
 spot, hv20_auto = fetch_yf_price_and_hv20(y_ticker)
 
@@ -300,29 +291,37 @@ strike_html = f"""
 """
 st.markdown(strike_html, unsafe_allow_html=True)
 
-# 3) Sidebar: parâmetros (HV20, r) e cobertura
+# 3) Sidebar: parâmetros & regras
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
 
 hv20_default = float(hv20_auto) if pd.notna(hv20_auto) else 20.0
-hv20_input = st.sidebar.number_input("HV20 (σ anual – proxy) [%]", min_value=0.0, max_value=200.0, value=hv20_default, step=0.10, format="%.2f")
-r_input = st.sidebar.number_input("r (anual) [%]", min_value=0.0, max_value=50.0, value=11.0, step=0.10, format="%.2f")
+hv20_input = st.sidebar.number_input("HV20 (σ anual – proxy) [%]", 0.0, 200.0, hv20_default, step=0.10, format="%.2f")
+r_input = st.sidebar.number_input("r (anual) [%]", 0.0, 50.0, 11.0, step=0.10, format="%.2f")
 
 st.sidebar.markdown("---")
-qty_shares = st.sidebar.number_input(f"Ações em carteira ({user_ticker})", min_value=0, max_value=1_000_000, value=0, step=100)
+qty_shares = st.sidebar.number_input(f"Ações em carteira ({user_ticker})", 0, 1_000_000, 0, step=100)
 cash_avail = st.sidebar.text_input(f"Caixa disponível (R$) ({user_ticker})", value="0,00")
 try:
     cash_avail_val = br_to_float(cash_avail)
 except Exception:
     cash_avail_val = 0.0
-contract_size = st.sidebar.number_input(f"Tamanho do contrato ({user_ticker})", min_value=1, max_value=1000, value=CONTRACT_SIZE, step=1)
+contract_size = st.sidebar.number_input(f"Tamanho do contrato ({user_ticker})", 1, 1000, CONTRACT_SIZE, step=1)
 
 st.sidebar.markdown("---")
-dias_alerta = st.sidebar.number_input("Alerta de saída (dias para o vencimento) ≤", min_value=1, max_value=30, value=7)
-meta_captura = st.sidebar.number_input("Meta de captura do crédito (%)", min_value=50, max_value=100, value=75)
-janela_pct = st.sidebar.number_input("Janela de alerta no strike (±%)", min_value=1, max_value=20, value=5)
+dias_alerta = st.sidebar.number_input("Alerta de saída (dias para o vencimento) ≤", 1, 30, 7)
+meta_captura = st.sidebar.number_input("Meta de captura do crédito (%)", 50, 100, 75)
+janela_pct = st.sidebar.number_input("Janela de alerta no strike (±%)", 1, 20, 5)
 
 st.sidebar.markdown("---")
 comb_limit = st.sidebar.slider("Limite por perna para cruzar pares (velocidade)", 10, 200, 30, step=10)
+
+# ---------- Novos controles (priorizar baixa probabilidade) ----------
+st.sidebar.markdown("### 🎯 Preferência por Baixa Probabilidade")
+max_poe_leg  = st.sidebar.slider("Prob. máx por perna (%)", 5, 50, 25, step=1) / 100.0
+max_poe_comb = st.sidebar.slider("Prob. média máx (PUT/CALL) (%)", 5, 50, 20, step=1) / 100.0
+alpha        = st.sidebar.slider("Penalização por prob. (α)", 1, 5, 2, step=1)
+use_delta_filter = st.sidebar.checkbox("Filtrar por |Δ| ~ 0,10–0,25 (se disponível)", value=True)
+min_width_pct = st.sidebar.slider("Largura mínima entre strikes (% do spot)", 1, 20, 6, step=1) / 100.0
 
 # 4) Colar a option chain
 st.subheader(f"3) Colar a option chain de {user_ticker} (opcoes.net)")
@@ -366,16 +365,20 @@ puts  = df[df["type"] == "P"].copy()
 calls["OTM"] = calls["strike"].astype(float) > S
 puts["OTM"]  = puts["strike"].astype(float)  < S
 
-calls = calls[calls["OTM"] & pd.notna(calls["price"])]
-puts  = puts[puts["OTM"]  & pd.notna(puts["price"])]
+# --- filtro opcional por Delta quando disponível ---
+if use_delta_filter and "delta" in df.columns:
+    calls = calls[calls["OTM"] & pd.notna(calls["price"]) & calls["delta"].abs().between(0.10, 0.25, inclusive="both")]
+    puts  = puts[puts["OTM"]  & pd.notna(puts["price"])  & puts["delta"].abs().between(0.10, 0.25, inclusive="both")]
+else:
+    calls = calls[calls["OTM"] & pd.notna(calls["price"])]
+    puts  = puts[puts["OTM"]  & pd.notna(puts["price"])]
 
 if calls.empty or puts.empty:
-    st.warning("Não encontrei CALL e PUT OTM simultaneamente nesse vencimento. Experimente outro vencimento.")
+    st.warning("Não encontrei CALL e PUT OTM simultaneamente nesse vencimento. Experimente ajustar filtros (Delta/limites).")
     st.stop()
 
 # PoE (probabilidade de exercício)
 r = r_input / 100.0
-
 def poe_side(row, side):
     K = float(row["strike"])
     sig = float(row["sigma"]) if pd.notna(row["sigma"]) and row["sigma"] > 0 else sigma_proxy
@@ -384,7 +387,7 @@ def poe_side(row, side):
 puts["poe"]  = puts.apply(lambda rw: poe_side(rw, "P"), axis=1)
 calls["poe"] = calls.apply(lambda rw: poe_side(rw, "C"), axis=1)
 
-# 7) Combinações PUT x CALL (limitadas para velocidade) — agora configurável
+# 7) Combinações PUT x CALL (limitadas para velocidade) — configurável
 puts_small  = puts.sort_values(["price"], ascending=False).head(comb_limit).copy()
 calls_small = calls.sort_values(["price"], ascending=False).head(comb_limit).copy()
 
@@ -401,8 +404,6 @@ for _, prow in puts_small.iterrows():
         be_high = kc + cred
         poe_p = float(prow["poe"]) if pd.notna(prow["poe"]) else np.nan
         poe_c = float(crow["poe"]) if pd.notna(crow["poe"]) else np.nan
-        risk_penalty = 1.0 - np.nanmean([poe_p, poe_c]) if not np.isnan(np.nanmean([poe_p, poe_c])) else 1.0
-        score = cred * max(risk_penalty, 0.0)
         pairs.append({
             "PUT": prow["symbol"],
             "CALL": crow["symbol"],
@@ -422,8 +423,32 @@ if pairs_df.empty:
     st.warning("Não há pares de PUT e CALL OTM válidos para esse vencimento e preço à vista.")
     st.stop()
 
-pairs_df["score"] = pairs_df["credito"] * (1.0 - ((pairs_df["poe_put"].fillna(0)+pairs_df["poe_call"].fillna(0))/2.0))
-pairs_df = pairs_df.sort_values(["score","credito"], ascending=[False, False]).reset_index(drop=True)
+# ---------- (F4) Largura mínima entre strikes ----------
+width_ok = (pairs_df["Kc"] - pairs_df["Kp"]) >= (S * min_width_pct)
+pairs_df = pairs_df[width_ok]
+
+if pairs_df.empty:
+    st.warning("Todas as combinações ficaram abaixo da largura mínima entre strikes. Reduza o filtro de largura.")
+    st.stop()
+
+# ---------- (F1) Filtros duros de probabilidade ----------
+pairs_df["poe_leg_max"] = pairs_df[["poe_put","poe_call"]].max(axis=1)
+pairs_df["poe_comb"]    = pairs_df[["poe_put","poe_call"]].mean(axis=1)
+
+pairs_df = pairs_df[
+    (pairs_df["poe_put"]  <= max_poe_leg) &
+    (pairs_df["poe_call"] <= max_poe_leg) &
+    (pairs_df["poe_comb"] <= max_poe_comb)
+]
+
+if pairs_df.empty:
+    st.warning("Nenhuma combinação passou pelos limites de probabilidade. Tente relaxar os sliders de probabilidade.")
+    st.stop()
+
+# ---------- (F2) Novo score com p_inside e penalização α ----------
+pairs_df["p_inside"] = (1 - pairs_df["poe_put"].fillna(0) - pairs_df["poe_call"].fillna(0)).clip(lower=0)
+pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** alpha)
+pairs_df = pairs_df.sort_values(["score","p_inside","credito"], ascending=[False, False, False]).reset_index(drop=True)
 
 # 8) Top 3 + flags de alerta
 top3 = pairs_df.head(3).copy()
@@ -439,7 +464,7 @@ top3["alert_call"] = top3.apply(lambda r: near_strike(S, r["Kc"], janela_pct), a
 top3["alert_put"]  = top3.apply(lambda r: near_strike(S, r["Kp"], janela_pct), axis=1)
 top3["alert_days"] = top3["days_to_exp"] <= dias_alerta
 
-# --- Tabela Top 3 (inclui prêmio PUT, CALL e total) ---
+# --- Tabela Top 3
 top3_display = top3.copy()
 top3_display["Prêmio PUT (R$)"]   = top3_display["premio_put"].map(lambda x: f"{x:.2f}")
 top3_display["Prêmio CALL (R$)"]  = top3_display["premio_call"].map(lambda x: f"{x:.2f}")
@@ -447,25 +472,33 @@ top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{
 top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
 top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
 top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
-top3_display["Alertas"] = top3_display.apply(
-    lambda r: "".join([
-        "⏳" if r["alert_days"] else "",
-        " 🔺" if r["alert_call"] else "",
-        " 🔻" if r["alert_put"] else "",
-    ]).strip(),
-    axis=1
-)
+top3_display["p_dentro (%)]"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")
+
+# ---------- (F5) Badge "Notas" ----------
+def tag_risco(row):
+    tags = []
+    if row["poe_leg_max"] > (max_poe_leg * 0.9):  # passou perto do limite por perna
+        tags.append("⚠️ prob. por perna alta")
+    if row["poe_comb"] > (max_poe_comb * 0.9):    # passou perto do limite combinado
+        tags.append("⚠️ prob. média alta")
+    if row["p_inside"] < 0.70:
+        tags.append("🎯 dentro < 70%")
+    return " · ".join(tags)
+
+top3_display["Notas"] = top3.apply(tag_risco, axis=1)
+
 top3_display = top3_display[[
     "PUT","Kp",
     "CALL","Kc",
     "Prêmio PUT (R$)","Prêmio CALL (R$)","Crédito/ação (R$)",
     "Break-evens (mín–máx)",
     "Prob. exercício PUT (%)","Prob. exercício CALL (%)",
-    "Alertas"
+    "p_dentro (%)]",
+    "Notas"
 ]]
 top3_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
 
-st.subheader("🏆 Top 3 (melhor prêmio/risco)")
+st.subheader("🏆 Top 3 (prioriza prêmio com baixa probabilidade)")
 st.dataframe(top3_display, use_container_width=True, hide_index=True)
 
 # 9) Cartões detalhados
@@ -484,7 +517,7 @@ for i, rw in top3.iterrows():
     lots = st.number_input(f"#{rank} — Lotes (1 lote = 1 PUT + 1 CALL)", min_value=0, max_value=10000, value=st.session_state["lot_map"][i], key=key_lotes)
     st.session_state["lot_map"][i] = lots
 
-    # (2) usar o contract_size efetivo fornecido pelo usuário
+    # [B] usar o contract_size efetivo fornecido pelo usuário
     effective_contract_size = int(contract_size) if contract_size else CONTRACT_SIZE
     premio_total = rw["credito"] * effective_contract_size * lots
 
@@ -497,7 +530,7 @@ for i, rw in top3.iterrows():
         c2.metric("Break-evens (mín–máx)", f"{rw['be_low']:.2f} — {rw['be_high']:.2f}")
         c3.metric("Prob. exercício (PUT / CALL)", f"{100*rw['poe_put']:.1f}% / {100*rw['poe_call']:.1f}%")
 
-        # (1) Cobertura: quantos ativos/caixa necessários para os lotes escolhidos
+        # [A] Cobertura
         required_shares = effective_contract_size * lots
         required_cash   = rw["Kp"] * effective_contract_size * lots
         covered_call = qty_shares >= required_shares
@@ -519,18 +552,15 @@ for i, rw in top3.iterrows():
             f"`{rw['credito']:.2f} × {effective_contract_size} × {lots}` → **{format_brl(premio_total)}**"
         )
 
-        # (5) Alertas operacionais no cartão (dias e janela de strike)
+        # [E] Alertas
         if bus_days <= dias_alerta:
             st.info(f"⏳ Faltam {bus_days} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
-        if abs(S - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
+        if abs(spot - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
             st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
-        if abs(S - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
+        if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
             st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
 
-        # ===========================
-        # 📘 O que significa cada item?
-        # (usa HTML leve e números pré-formatados para evitar quebras de Markdown)
-        # ===========================
+        # Explicações (HTML leve p/ evitar quebras)
         with st.expander("📘 O que significa cada item?"):
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
@@ -569,6 +599,6 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 </p>
 """, unsafe_allow_html=True)
 
-# Rodapé leve
+# Rodapé
 st.markdown("---")
 st.caption("Dica: se a cotação do yfinance parecer defasada, clique no ícone de recarregar (cache ~5 min).")
