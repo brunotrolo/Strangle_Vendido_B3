@@ -1,6 +1,6 @@
-# app_v9.py
+# app_v10.py
 # ------------------------------------------------------------
-# Strangle Vendido Coberto — v9
+# Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -126,7 +126,7 @@ def fetch_b3_tickers():
         best = None
         for df in dfs:
             cols = [c.lower() for c in df.columns.astype(str)]
-            if any("código" in c or "codigo" in c or "ticker" in c for c in cols) and any("empresa" in c or "razão" in c or "razao" in c or "nome" in c for c in cols):
+            if any("código" in c or "codigo" in c or "ticker" in c for c in cols) and any("empresa" in c or "razão" in c or "razao" in c or "nome" in c or "companhia" in c for c in cols):
                 best = df
                 break
         if best is None:
@@ -138,7 +138,7 @@ def fetch_b3_tickers():
             cl = c.lower()
             if code_col is None and ("código" in cl or "codigo" in cl or "ticker" in cl or "símbolo" in cl or "simbolo" in cl or cl=="cód."):
                 code_col = c
-            if name_col is None and ("empresa" in cl or "razão" in cl or "razao" in cl or "nome" in cl ou "companhia" in cl):
+            if name_col is None and ("empresa" in cl or "razão" in cl or "razao" in cl or "nome" in cl or "companhia" in cl):
                 name_col = c
         if code_col is None:
             code_col = best.columns[0]
@@ -226,7 +226,7 @@ def parse_pasted_chain(text: str):
     out["last"]   = df[col_ultimo].apply(br_to_float)
     out["expiration"] = df[col_venc].apply(parse_date_br)
     out["impliedVol"] = df[col_iv].apply(pct_to_float) if col_iv else np.nan
-    out["delta"] = df[col_delta"].apply(br_to_float) if col_delta else np.nan
+    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan  # <-- fix aqui
 
     out = out[pd.notna(out["strike"]) & pd.notna(out["expiration"])].copy()
     return out.reset_index(drop=True)
@@ -530,7 +530,7 @@ top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{
 top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
 top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
 top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
-top3_display["p_dentro (%)]"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")
+top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")  # <-- fix do rótulo
 
 def tag_risco(row):
     tags = []
@@ -550,7 +550,7 @@ top3_display = top3_display[[
     "Prêmio PUT (R$)","Prêmio CALL (R$)","Crédito/ação (R$)",
     "Break-evens (mín–máx)",
     "Prob. exercício PUT (%)","Prob. exercício CALL (%)",
-    "p_dentro (%)]",
+    "p_dentro (%)",
     "Notas"
 ]]
 top3_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
