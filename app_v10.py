@@ -1,4 +1,4 @@
-# app_v10.py
+# app_v10.1.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # ------------------------------------------------------------
