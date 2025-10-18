@@ -1,4 +1,4 @@
-# app_v10.99.py
+# app_v10.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # ------------------------------------------------------------
@@ -138,7 +138,7 @@ def fetch_b3_tickers():
             cl = c.lower()
             if code_col is None and ("código" in cl or "codigo" in cl or "ticker" in cl or "símbolo" in cl or "simbolo" in cl or cl=="cód."):
                 code_col = c
-            if name_col is None and ("empresa" in cl ou "razão" in cl or "razao" in cl or "nome" in cl or "companhia" in cl):
+            if name_col is None and ("empresa" in cl or "razão" in cl or "razao" in cl or "nome" in cl or "companhia" in cl):
                 name_col = c
         if code_col is None:
             code_col = best.columns[0]
