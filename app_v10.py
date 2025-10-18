@@ -644,23 +644,78 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 # =========================
 # ℹ️ Guia de parâmetros (movido para o final)
 # =========================
-st.markdown("---")
 with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
     st.markdown("""
-**Volatilidade (HV20 %)**: proxy de σ. **Maior →** prêmios tendem a subir e probabilidade de exercício ↑. **Menor →** prêmios ↓ e probabilidade ↓.  
-**Taxa r (anual %)**: efeito pequeno no PoE/preço teórico; use algo próximo da SELIC.  
-**Ações em carteira**: usado só para **validar a CALL coberta** (✅/❌). Mais ações → mais lotes cobertos.  
-**Caixa disponível (R$)**: usado só para **validar a PUT coberta** (✅/❌) no strike da PUT.  
-**Tamanho do contrato**: multiplica o **prêmio total** e os **requisitos de cobertura** (ações/caixa).  
-**Alerta de saída (dias)**: define quando mostrar aviso de tempo. **Menor →** alerta aparece mais cedo.  
-**Meta de captura (%)**: alvo para encerrar com lucro. **Maior →** você tende a esperar mais.  
-**Janela no strike (±%)**: sensibilidade para avisos de “encostar” no strike. **Maior →** mais avisos; **menor →** só quando muito perto.  
-**Limite por perna**: quantos strikes por lado entram na combinação. **Maior →** mais candidatos (mais lento).  
-**Prob. máx por perna / média**: filtros “duros”. **Menor →** setups mais conservadores (pode zerar a lista).  
-**Penalização (α)**: quão forte o ranking pune probabilidade alta. **Maior →** prioriza PoE baixa, mesmo com prêmio menor.  
-**Filtro por |Δ|**: quando ligado, tende a reduzir exercício mantendo prêmios razoáveis.  
-**Largura mínima (%)**: força pares com strikes mais afastados. **Maior →** menor risco, menos candidatos.
+**Como ler os efeitos (exemplos didáticos)**  
+Suponha **spot = R$ 6,00**, strikes **Kp = 5,50 / Kc = 6,50**, **crédito/ação = R$ 0,18**, **1 contrato = 100 ações**, **2 lotes**.
+
+- **Volatilidade (HV20 %)**  
+  **O que é:** proxy da volatilidade anual (σ).  
+  **Aumentar:** prêmios ↑ e probabilidade de exercício (PoE) ↑.  
+  **Diminuir:** prêmios ↓ e PoE ↓.  
+  **Ex.:** HV20 **20% → 30%**: crédito pode ir de **R$ 0,18 → R$ 0,22**, mas PoE PUT/CALL sobe ~**3–5 p.p.**.
+
+- **Taxa r (anual %)**  
+  **O que é:** taxa livre de risco no Black–Scholes (efeito pequeno).  
+  **Aumentar/Diminuir:** muda pouco PoE/preço teórico.  
+  **Ex.:** **10% → 12%**: variações de **centavos** no crédito; PoE quase inalterado.
+
+- **Ações em carteira**  
+  **O que é:** valida **CALL coberta** (✅/❌).  
+  **Aumentar:** permite vender mais lotes cobertos.  
+  **Ex.:** contrato = **100 ações**, **2 lotes** ⇒ precisa **200 ações** para CALL coberta.
+
+- **Caixa disponível (R$)**  
+  **O que é:** valida **PUT coberta** (✅/❌) no **strike da PUT**.  
+  **Aumentar:** viabiliza mais lotes de PUT coberta.  
+  **Ex.:** **Kp = 5,50**, 2 lotes ⇒ precisa **R$ 1.100** (2 × 100 × 5,50).
+
+- **Tamanho do contrato**  
+  **O que é:** nº de ações por contrato.  
+  **Aumentar:** **prêmio total** ↑ e **exigências de cobertura** ↑.  
+  **Ex.:** crédito/ação **R$ 0,18**, contrato **100** ⇒ por lote = **R$ 18**; com **2 lotes** ⇒ **R$ 36**.
+
+- **Alerta de saída (dias)**  
+  **O que é:** quando exibir aviso pelo tempo restante.  
+  **Diminuir:** alerta aparece mais cedo.  
+  **Ex.:** setar **7 dias** ⇒ ao faltar **≤ 7** dias, aparece o ⏳.
+
+- **Meta de captura do crédito (%)**  
+  **O que é:** alvo didático para encerrar com lucro.  
+  **Aumentar:** você tende a esperar mais.  
+  **Ex.:** crédito **R$ 0,18**, meta **75%** ⇒ objetivo **≈ R$ 0,135** por ação capturado.
+
+- **Janela no strike (±%)**  
+  **O que é:** sensibilidade para avisos de “encostar” no strike.  
+  **Aumentar:** mais avisos; **Diminuir:** aviso só quando muito perto.  
+  **Ex.:** Kc **6,50**, janela **±5%** ⇒ aviso se spot entre **6,18–6,83**.
+
+- **Limite por perna (combinações)**  
+  **O que é:** nº de strikes por lado usados ao cruzar pares.  
+  **Aumentar:** mais candidatos (app **mais lento**).  
+  **Ex.:** **30 → 100**: varre mais PUTs/CALLs, pode revelar pares melhores (mas demora mais).
+
+- **Prob. máx por perna / média**  
+  **O que é:** **filtros duros** de PoE (por perna e média PUT/CALL).  
+  **Diminuir:** setups mais conservadores; pode zerar a lista.  
+  **Ex.:** média máx **20%** ⇒ descarta pares com PoE média **> 20%**.
+
+- **Penalização (α) no ranking**  
+  **O que é:** peso da punição para PoE alta no **score**.  
+  **Aumentar:** prioriza **p_inside** (ficar entre strikes), mesmo com prêmio menor.  
+  **Ex.:** α **2 → 4**: pares com **p_inside** maior sobem no ranking.
+
+- **Filtro por |Δ| (0,10–0,25)**  
+  **O que é:** restringe a deltas típicos de OTM “saudável” (se disponível).  
+  **Ativar:** tende a reduzir PoE mantendo prêmios razoáveis.  
+  **Ex.:** CALL com |Δ| **0,35** seria filtrada; **0,18** passaria.
+
+- **Largura mínima entre strikes (% do spot)**  
+  **O que é:** exige distância mínima entre **Kp** e **Kc**.  
+  **Aumentar:** menos risco (pares mais “largos”), menos candidatos.  
+  **Ex.:** spot **6,00**, largura **6%** ⇒ **Kc − Kp ≥ 0,36**.
 """)
+
 
 # Rodapé
 st.markdown("---")
