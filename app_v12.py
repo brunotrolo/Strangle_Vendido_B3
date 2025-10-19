@@ -911,21 +911,7 @@ else:
 # =========================
 # 🧩 Resumo das Ações Marcadas
 # =========================
-st.markdown("---")
-st.subheader("🧩 Resumo das ações marcadas")
-_any = False
-if "checklist_state" in st.session_state:
-    for _key, _stt in st.session_state["checklist_state"].items():
-        if any([_stt.get("meta"), _stt.get("call"), _stt.get("tempo")]):
-            _any = True
-            badges = []
-            if _stt.get("meta"): badges.append("🎯 Meta")
-            if _stt.get("call"): badges.append("🔺 CALL")
-            if _stt.get("tempo"): badges.append("⏳ Tempo")
-            anot = (_stt.get("nota") or "").strip()
-            st.markdown(f"- **{_key}** → " + " · ".join(badges) + (f"<br>_Anotação:_ {anot}" if anot else ""), unsafe_allow_html=True)
-if not _any:
-    st.info("Nenhuma ação marcada ainda. Marque os checkboxes nos cards acima para ver o resumo consolidado aqui.")
+
 
 # =========================
 # ℹ️ Como cada parâmetro afeta o Top 3 (guia final)
