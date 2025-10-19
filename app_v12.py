@@ -3,6 +3,7 @@
 # Strangle Vendido Coberto — v9
 # Sprint 1: Indicador cobertura, Presets (largura dinâmica), "Por que #1?"
 # Sprint 2: Comparador de cenários (2 colunas) + Checklist de saída guiada
+# Alinhamento horizontal no comparador (tabela combinada + cards pareados por rank)
 # Multi-vencimentos + Top N + defaults cobertura (1000)
 # parse_pasted_chain ignora título "Opções ..." e segunda linha vazia
 # ------------------------------------------------------------
@@ -38,6 +39,7 @@ st.markdown("""
 .note {color:#6b7280; font-size:.9rem;}
 .kv {background:#f3f4f6; padding:2px 6px; border-radius:6px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}
 .scenario-title {font-size:1.05rem; font-weight:800; margin:.25rem 0 .5rem;}
+.card-placeholder {padding:1rem; border:1px dashed #cbd5e1; border-radius:12px; color:#64748b; text-align:center;}
 @media (prefers-color-scheme: light) {
   .strike-card{ background:#fafafa; border-color:#e5e7eb; }
   .strike-label{ color:#4b5563; }
@@ -48,6 +50,7 @@ st.markdown("""
   .strike-label{ color:#d1d5db; }
   .strike-value{ color:#f9fafb; }
   .kv {background:#111827; border:1px solid #374151; color:#e5e5e5;}
+  .card-placeholder {border-color:#334155; color:#94a3b8;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -450,13 +453,14 @@ top_n = st.slider(
 
 # ---------- Comparador de cenários ----------
 st.markdown("### 🧪 Comparador de cenários")
+risk_presets_all = list(risk_presets.keys())
 compare_two = st.checkbox("Comparar 2 cenários (lado a lado)", value=False)
 if compare_two:
     col_cmp1, col_cmp2 = st.columns(2)
     with col_cmp1:
-        preset_left = st.selectbox("Preset (Lado A)", options=list(risk_presets.keys()), index=1, key="preset_left")
+        preset_left = st.selectbox("Preset (Lado A)", options=risk_presets_all, index=1, key="preset_left")
     with col_cmp2:
-        preset_right = st.selectbox("Preset (Lado B)", options=list(risk_presets.keys()), index=2 if len(risk_presets)>=3 else 1, key="preset_right")
+        preset_right = st.selectbox("Preset (Lado B)", options=risk_presets_all, index=2 if len(risk_presets_all)>=3 else 1, key="preset_right")
 else:
     preset_left = risk_choice
     preset_right = None  # não usado
@@ -578,7 +582,7 @@ def compute_recos_for_preset(preset_name: str):
 
         # Score
         pairs_df["p_inside"] = (1 - pairs_df["poe_put"].fillna(0) - pairs_df["poe_call"].fillna(0)).clip(lower=0)
-        pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** alpha)
+        pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** preset["alpha"])
 
         all_pairs.append(pairs_df)
 
@@ -590,163 +594,156 @@ def compute_recos_for_preset(preset_name: str):
     top_df = all_df.head(top_n).copy()
     return top_df, all_df, preset
 
-# =============== Execução principal (1 ou 2 cenários) ===============
-def render_block(top_df, all_df, preset, side_key: str, title: str):
-    if top_df is None or top_df.empty:
-        st.info("Nenhuma combinação válida após aplicar filtros e largura mínima neste cenário.")
-        return
+# ---------- Helpers p/ exibição alinhada ----------
+def prep_display_table(df, preset):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    tmp = df.copy()
+    tmp["Vencimento"] = tmp["expiration"].map(lambda d: d.strftime("%Y-%m-%d"))
+    tmp["Strike PUT"] = tmp["Kp"].map(lambda x: f"{x:.2f}")
+    tmp["Strike CALL"] = tmp["Kc"].map(lambda x: f"{x:.2f}")
+    tmp["Prêmio PUT (R$)"]   = tmp["premio_put"].map(lambda x: f"{x:.2f}")
+    tmp["Prêmio CALL (R$)"]  = tmp["premio_call"].map(lambda x: f"{x:.2f}")
+    tmp["Crédito/ação (R$)"] = tmp["credito"].map(lambda x: f"{x:.2f}")
+    tmp["Break-evens (mín–máx)"] = tmp.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
+    tmp["Prob. exercício PUT (%)"]  = (100*tmp["poe_put"]).map(lambda x: f"{x:.1f}")
+    tmp["Prob. exercício CALL (%)"] = (100*tmp["poe_call"]).map(lambda x: f"{x:.1f}")
+    tmp["p_dentro (%)"] = (100*tmp["p_inside"]).map(lambda x: f"{x:.1f}")
 
-    # Alertas
-    top_df["alert_call"] = top_df.apply(lambda r: near_strike(S, r["Kc"], janela_pct), axis=1)
-    top_df["alert_put"]  = top_df.apply(lambda r: near_strike(S, r["Kp"], janela_pct), axis=1)
-    top_df["alert_days"] = top_df["days_to_exp"] <= dias_alerta
-
-    # Tabela
-    top_display = top_df.copy()
-    top_display["Vencimento"] = top_display["expiration"].map(lambda d: d.strftime("%Y-%m-%d"))
-    top_display["Prêmio PUT (R$)"]   = top_display["premio_put"].map(lambda x: f"{x:.2f}")
-    top_display["Prêmio CALL (R$)"]  = top_display["premio_call"].map(lambda x: f"{x:.2f}")
-    top_display["Crédito/ação (R$)"] = top_display["credito"].map(lambda x: f"{x:.2f}")
-    top_display["Break-evens (mín–máx)"] = top_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
-    top_display["Prob. exercício PUT (%)"]  = (100*top_display["poe_put"]).map(lambda x: f"{x:.1f}")
-    top_display["Prob. exercício CALL (%)"] = (100*top_display["poe_call"]).map(lambda x: f"{x:.1f}")
-    top_display["p_dentro (%)"] = (100*top_display["p_inside"]).map(lambda x: f"{x:.1f}")
-
-    def tag_risco(row):
+    def tag_risco_row(r):
         tags = []
-        if "poe_leg_max" in row and "poe_comb" in row:
-            if row["poe_leg_max"] > (preset["max_leg"] * 0.9):
-                tags.append("⚠️ prob. por perna alta")
-            if row["poe_comb"] > (preset["max_comb"] * 0.9):
-                tags.append("⚠️ prob. média alta")
-        if row["p_inside"] < 0.70:
+        if "poe_leg_max" in r and "poe_comb" in r:
+            if r["poe_leg_max"] > (preset["max_leg"] * 0.9):
+                tags.append("⚠️ perna alta")
+            if r["poe_comb"] > (preset["max_comb"] * 0.9):
+                tags.append("⚠️ média alta")
+        if r["p_inside"] < 0.70:
             tags.append("🎯 dentro < 70%")
         return " · ".join(tags)
 
-    top_display["Notas"] = top_df.apply(tag_risco, axis=1)
-
-    top_display = top_display[[
-        "Vencimento",
-        "PUT","Kp",
-        "CALL","Kc",
+    tmp["Notas"] = df.apply(tag_risco_row, axis=1)
+    sel = tmp[[
+        "Vencimento","PUT","Strike PUT","CALL","Strike CALL",
         "Prêmio PUT (R$)","Prêmio CALL (R$)","Crédito/ação (R$)",
         "Break-evens (mín–máx)",
         "Prob. exercício PUT (%)","Prob. exercício CALL (%)",
         "p_dentro (%)",
         "Notas"
-    ]]
-    top_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
+    ]].copy()
+    sel.insert(0, "Rank", range(1, len(sel)+1))
+    return sel
 
-    st.markdown(f"<div class='scenario-title'>{title}</div>", unsafe_allow_html=True)
-    st.dataframe(top_display, use_container_width=True, hide_index=True)
+def build_compare_table(dfA, presetA, dfB, presetB):
+    dfa = prep_display_table(dfA, presetA)
+    dfb = prep_display_table(dfB, presetB)
 
-    # Cartões
-    st.markdown("—")
-    for i, rw in top_df.iterrows():
-        rank = i + 1
-        key_lotes = f"lots_{side_key}_{i}"
-        if "lot_map" not in st.session_state:
-            st.session_state["lot_map"] = {}
-        if key_lotes not in st.session_state["lot_map"]:
-            st.session_state["lot_map"][key_lotes] = 0
+    if dfa.empty and dfb.empty:
+        return pd.DataFrame()
 
-        lots = st.number_input(
-            f"#{rank} — Lotes (1 lote = 1 PUT + 1 CALL) [{title}]",
-            min_value=0, max_value=10000, value=st.session_state["lot_map"][key_lotes], key=key_lotes,
-            help="Quantidade de lotes para esta sugestão. Aumenta proporcionalmente o prêmio total e as exigências de cobertura."
+    # Adiciona sufixo A/B nos nomes (exceto Rank)
+    if not dfa.empty:
+        dfa = dfa.rename(columns={c: f"{c} [A]" for c in dfa.columns if c != "Rank"})
+    if not dfb.empty:
+        dfb = dfb.rename(columns={c: f"{c} [B]" for c in dfb.columns if c != "Rank"})
+
+    merged = pd.merge(dfa, dfb, on="Rank", how="outer")
+    merged = merged.sort_values("Rank").fillna("—")
+    return merged
+
+def render_card_for_row(rw, preset, side_key: str, title: str, idx: int, qty_shares=0, cash_avail_val=0.0, contract_size=100, dias_alerta=7, meta_captura=75, janela_pct=5, spot=0.0):
+    if rw is None:
+        st.markdown(f"<div class='card-placeholder'>— Sem candidato neste rank —</div>", unsafe_allow_html=True)
+        return
+
+    lots_key = f"lots_{side_key}_{idx}"
+    if "lot_map" not in st.session_state:
+        st.session_state["lot_map"] = {}
+    if lots_key not in st.session_state["lot_map"]:
+        st.session_state["lot_map"][lots_key] = 0
+
+    lots = st.number_input(
+        f"#{idx+1} — Lotes (1 lote = 1 PUT + 1 CALL) [{title}]",
+        min_value=0, max_value=10000, value=st.session_state["lot_map"][lots_key], key=lots_key,
+        help="Quantidade de lotes para esta sugestão. Aumenta proporcionalmente o prêmio total e as exigências de cobertura."
+    )
+    st.session_state["lot_map"][lots_key] = lots
+
+    effective_contract_size = int(contract_size) if contract_size else CONTRACT_SIZE
+    premio_total = rw["credito"] * effective_contract_size * lots
+
+    with st.container(border=True):
+        venc_txt = rw["expiration"].strftime("%Y-%m-%d")
+        st.markdown(
+            f"**#{idx+1} → Vender PUT `{rw['PUT']}` (Kp={rw['Kp']:.2f}) + CALL `{rw['CALL']}` (Kc={rw['Kc']:.2f}) · Vencimento: `{venc_txt}`**"
         )
-        st.session_state["lot_map"][key_lotes] = lots
+        c1, c2, c3 = st.columns([1.0, 1.2, 1.2])
+        c1.metric("Crédito/ação", format_brl(rw["credito"]))
+        c2.metric("Break-evens (mín–máx)", f"{rw['be_low']:.2f} — {rw['be_high']:.2f}")
+        c3.metric("Prob. exercício (PUT / CALL)", f"{100*rw['poe_put']:.1f}% / {100*rw['poe_call']:.1f}%")
 
-        effective_contract_size = int(contract_size) if contract_size else CONTRACT_SIZE
-        premio_total = rw["credito"] * effective_contract_size * lots
+        # Cobertura
+        required_shares = effective_contract_size * lots
+        required_cash   = rw["Kp"] * effective_contract_size * lots
+        covered_call = qty_shares >= required_shares if lots > 0 else True
+        covered_put  = (cash_avail_val if pd.notna(cash_avail_val) else 0.0) >= required_cash if lots > 0 else True
 
-        with st.container(border=True):
-            venc_txt = rw["expiration"].strftime("%Y-%m-%d")
-            st.markdown(
-                f"**#{rank} → Vender PUT `{rw['PUT']}` (Kp={rw['Kp']:.2f}) + CALL `{rw['CALL']}` (Kc={rw['Kc']:.2f}) · Vencimento: `{venc_txt}`**"
-            )
-            c1, c2, c3 = st.columns([1.0, 1.2, 1.2])
-            c1.metric("Crédito/ação", format_brl(rw["credito"]))
-            c2.metric("Break-evens (mín–máx)", f"{rw['be_low']:.2f} — {rw['be_high']:.2f}")
-            c3.metric("Prob. exercício (PUT / CALL)", f"{100*rw['poe_put']:.1f}% / {100*rw['poe_call']:.1f}%")
+        st.markdown(coverage_badge(covered_call, covered_put), unsafe_allow_html=True)
+        st.caption(
+            f"CALL coberta exige **{required_shares} ações**; PUT coberta exige **{format_brl(required_cash)}** em caixa (no strike da PUT)."
+            + (" Nenhuma exigência enquanto lotes = 0." if lots == 0 else "")
+        )
 
-            # Cobertura
-            required_shares = effective_contract_size * lots
-            required_cash   = rw["Kp"] * effective_contract_size * lots
-            covered_call = qty_shares >= required_shares if lots > 0 else True
-            covered_put  = (cash_avail_val if pd.notna(cash_avail_val) else 0.0) >= required_cash if lots > 0 else True
-
-            st.markdown(coverage_badge(covered_call, covered_put), unsafe_allow_html=True)
-            st.caption(
-                f"CALL coberta exige **{required_shares} ações**; PUT coberta exige **{format_brl(required_cash)}** em caixa (no strike da PUT)."
-                + (" Nenhuma exigência enquanto lotes = 0." if lots == 0 else "")
+        if not covered_call or not covered_put:
+            st.warning(
+                f"Cobertura insuficiente para {lots} lote(s): "
+                f"precisa de **{required_shares} ações** e **{format_brl(required_cash)} em caixa** "
+                f"(CALL usa ações; PUT usa caixa no strike da PUT)."
             )
 
-            if not covered_call or not covered_put:
-                st.warning(
-                    f"Cobertura insuficiente para {lots} lote(s): "
-                    f"precisa de **{required_shares} ações** e **{format_brl(required_cash)} em caixa** "
-                    f"(CALL usa ações; PUT usa caixa no strike da PUT)."
+        d1, d2 = st.columns([1.1, 2.0])
+        d1.metric("🎯 Prêmio estimado (total)", format_brl(premio_total))
+        d2.markdown(
+            f"**Cálculo:** `crédito/ação × contrato × lotes` = "
+            f"`{rw['credito']:.2f} × {effective_contract_size} × {lots}` → **{format_brl(premio_total)}**"
+        )
+
+        # Alertas informativos
+        if rw["days_to_exp"] <= dias_alerta:
+            st.info(f"⏳ Faltam {int(rw['days_to_exp'])} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
+        if abs(spot - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
+            st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
+        if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
+            st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
+
+        # “Por que #1?” — só quando idx==0
+        if idx == 0:
+            with st.expander("🔎 Por que esta ficou em #1?"):
+                largura = rw["Kc"] - rw["Kp"]
+                st.markdown(
+                    f"- **Score** = `crédito × (p_inside^α)` = `{rw['credito']:.4f} × ({rw['p_inside']:.4f}^{risk_presets[preset]['alpha']})` → **{rw['score']:.4f}**"
+                )
+                st.markdown(
+                    f"- **Probabilidades**: PoE PUT `{100*rw['poe_put']:.1f}%` · PoE CALL `{100*rw['poe_call']:.1f}%` · média `{100*((rw['poe_put']+rw['poe_call'])/2):.1f}%` (limite `{int(100*risk_presets[preset]['max_comb'])}%`)."
+                )
+                st.markdown(
+                    f"- **Largura entre strikes**: `Kc - Kp = {largura:.2f}` (mínimo exigido `{(S*risk_presets[preset]['min_width']):.2f}` com spot `{S:.2f}`)."
+                )
+                st.markdown(
+                    f"<span class='note'>Resumo: este par equilibra bom crédito com alta chance de ficar entre strikes (p_inside) e cumpre os filtros ativos do seu preset.</span>",
+                    unsafe_allow_html=True
                 )
 
-            d1, d2 = st.columns([1.1, 2.0])
-            d1.metric("🎯 Prêmio estimado (total)", format_brl(premio_total))
-            d2.markdown(
-                f"**Cálculo:** `crédito/ação × contrato × lotes` = "
-                f"`{rw['credito']:.2f} × {effective_contract_size} × {lots}` → **{format_brl(premio_total)}**"
-            )
+        # Explicações por sugestão
+        with st.expander("📘 O que significa cada item?"):
+            premio_put_txt   = format_brl(rw["premio_put"])
+            premio_call_txt  = format_brl(rw["premio_call"])
+            credito_acao_txt = format_brl(rw["credito"])
+            be_low_txt       = f"{rw['be_low']:.2f}".replace(".", ",")
+            be_high_txt      = f"{rw['be_high']:.2f}".replace(".", ",")
+            poe_put_txt      = (f"{100*rw['poe_put']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_put"]) else "—"
+            poe_call_txt     = (f"{100*rw['poe_call']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_call"]) else "—"
 
-            # Alertas informativos (igual antes)
-            if rw["days_to_exp"] <= dias_alerta:
-                st.info(f"⏳ Faltam {int(rw['days_to_exp'])} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
-            if abs(spot - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
-                st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
-            if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
-                st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
-
-            # “Por que #1?” — só no primeiro card de cada cenário
-            if rank == 1:
-                with st.expander("🔎 Por que esta ficou em #1?"):
-                    largura = rw["Kc"] - rw["Kp"]
-                    st.markdown(
-                        f"- **Score** = `crédito × (p_inside^α)` = `{rw['credito']:.4f} × ({rw['p_inside']:.4f}^{preset['alpha']})` → **{rw['score']:.4f}**"
-                    )
-                    if "poe_put" in rw and "poe_call" in rw:
-                        st.markdown(
-                            f"- **Probabilidades**: PoE PUT `{100*rw['poe_put']:.1f}%` · PoE CALL `{100*rw['poe_call']:.1f}%` · média `{100*((rw['poe_put']+rw['poe_call'])/2):.1f}%` (limite `{int(100*preset['max_comb'])}%`)."
-                        )
-                    st.markdown(
-                        f"- **Largura entre strikes**: `Kc - Kp = {largura:.2f}` (mínimo exigido `{(S*preset['min_width']):.2f}` com spot `{S:.2f}`)."
-                    )
-                    st.markdown(
-                        f"<span class='note'>Resumo: este par equilibra bom crédito com alta chance de ficar entre strikes (p_inside) e cumpre os filtros ativos do seu preset.</span>",
-                        unsafe_allow_html=True
-                    )
-
-            # Checklist de saída guiada
-            with st.expander("✅ Checklist de saída"):
-                ck_time = st.checkbox(f"⏳ Faltam ≤ {dias_alerta} dias", key=f"ck_time_{side_key}_{i}")
-                ck_call = st.checkbox("🔺 Preço encostou no strike da CALL", key=f"ck_call_{side_key}_{i}")
-                ck_meta = st.checkbox(f"🎯 Capturou ~{meta_captura}% do crédito", key=f"ck_meta_{side_key}_{i}")
-
-                if ck_time:
-                    st.markdown("- **Ação sugerida:** avaliar **rolagem parcial** ou **encerramento antecipado** se risco não compensa o prêmio restante.")
-                if ck_call:
-                    st.markdown("- **Ação sugerida:** **recomprar a CALL** para travar ganho; opcional: rolar a CALL para strike acima/novo vencimento.")
-                if ck_meta:
-                    st.markdown("- **Ação sugerida:** **encerrar a operação** para garantir o ganho e reduzir risco de cauda.")
-
-            # Explicações por sugestão (como antes)
-            with st.expander("📘 O que significa cada item?"):
-                premio_put_txt   = format_brl(rw["premio_put"])
-                premio_call_txt  = format_brl(rw["premio_call"])
-                credito_acao_txt = format_brl(rw["credito"])
-                be_low_txt       = f"{rw['be_low']:.2f}".replace(".", ",")
-                be_high_txt      = f"{rw['be_high']:.2f}".replace(".", ",")
-                poe_put_txt      = (f"{100*rw['poe_put']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_put"]) else "—"
-                poe_call_txt     = (f"{100*rw['poe_call']:.1f}%".replace(".", ",")) if pd.notna(rw["poe_call"]) else "—"
-
-                st.markdown(f"""
+            st.markdown(f"""
 <p><b>Crédito/ação</b><br>
 É o total que você recebe ao vender <b>1 PUT</b> + <b>1 CALL</b> (por ação).<br>
 <b>Exemplo desta sugestão:</b> PUT paga <b>{premio_put_txt}</b> e CALL paga <b>{premio_call_txt}</b> → crédito/ação = <b>{credito_acao_txt}</b>.
@@ -775,22 +772,75 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 </p>
 """, unsafe_allow_html=True)
 
-# ====== Renderização: 1 cenário ou 2 colunas ======
-if compare_two:
+# =============== Execução principal (1 ou 2 cenários) ===============
+def compute_and_render_single(preset_name):
+    top_df, all_df, preset = compute_recos_for_preset(preset_name)
+    if top_df is None or top_df.empty:
+        st.info("Nenhuma combinação válida após aplicar filtros e largura mínima neste cenário.")
+        return
+    st.markdown(f"<div class='scenario-title'>📊 Cenário — {preset_name}</div>", unsafe_allow_html=True)
+    # tabela simples
+    st.dataframe(prep_display_table(top_df, preset), use_container_width=True, hide_index=True)
+    st.markdown("—")
+    # cards sequenciais
+    for i, rw in top_df.iterrows():
+        render_card_for_row(
+            rw, preset_name, side_key="S", title=f"Cenário — {preset_name}", idx=i,
+            qty_shares=qty_shares, cash_avail_val=cash_avail_val,
+            contract_size=contract_size, dias_alerta=dias_alerta,
+            meta_captura=meta_captura, janela_pct=janela_pct, spot=float(spot)
+        )
+
+def compute_and_render_compare(preset_left, preset_right):
     top_left, all_left, p_left = compute_recos_for_preset(preset_left)
     top_right, all_right, p_right = compute_recos_for_preset(preset_right)
 
-    colA, colB = st.columns(2)
-    with colA:
-        render_block(top_left, all_left, p_left, side_key="L", title=f"📊 Lado A — {preset_left}")
-    with colB:
-        render_block(top_right, all_right, p_right, side_key="R", title=f"📊 Lado B — {preset_right}")
+    # 1) Tabela combinada, alinhada por Rank
+    st.markdown("<div class='scenario-title'>📊 Tabela comparativa — Lado A vs Lado B</div>", unsafe_allow_html=True)
+    comp_table = build_compare_table(top_left, p_left, top_right, p_right)
+    if comp_table.empty:
+        st.info("Nenhum candidato válido em ambos os cenários com os filtros atuais.")
+        return
+    st.dataframe(comp_table, use_container_width=True, hide_index=True)
+
+    st.markdown("—")
+
+    # 2) Cards pareados por Rank (duas colunas por linha)
+    max_len = max(len(top_left) if top_left is not None else 0,
+                  len(top_right) if top_right is not None else 0)
+    for i in range(max_len):
+        colA, colB = st.columns(2)
+        with colA:
+            st.markdown(f"<div class='scenario-title'>📊 Lado A — {preset_left}</div>", unsafe_allow_html=True)
+            rwA = None if (top_left is None or i >= len(top_left)) else top_left.iloc[i]
+            if rwA is not None:
+                rwA = rwA.copy()
+            render_card_for_row(
+                rwA, preset_left, side_key=f"L", title=f"Lado A — {preset_left}", idx=i,
+                qty_shares=qty_shares, cash_avail_val=cash_avail_val,
+                contract_size=contract_size, dias_alerta=dias_alerta,
+                meta_captura=meta_captura, janela_pct=janela_pct, spot=float(spot)
+            )
+        with colB:
+            st.markdown(f"<div class='scenario-title'>📊 Lado B — {preset_right}</div>", unsafe_allow_html=True)
+            rwB = None if (top_right is None or i >= len(top_right)) else top_right.iloc[i]
+            if rwB is not None:
+                rwB = rwB.copy()
+            render_card_for_row(
+                rwB, preset_right, side_key=f"R", title=f"Lado B — {preset_right}", idx=i,
+                qty_shares=qty_shares, cash_avail_val=cash_avail_val,
+                contract_size=contract_size, dias_alerta=dias_alerta,
+                meta_captura=meta_captura, janela_pct=janela_pct, spot=float(spot)
+            )
+
+# ====== Renderização: 1 cenário ou comparador alinhado ======
+if compare_two:
+    compute_and_render_compare(preset_left, preset_right)
 else:
-    top_one, all_one, p_one = compute_recos_for_preset(preset_left)
-    render_block(top_one, all_one, p_one, side_key="S", title=f"📊 Cenário — {preset_left}")
+    compute_and_render_single(preset_left)
 
 # =========================
-# ℹ️ Guia (final)
+# ℹ️ Como cada parâmetro afeta o Top 3 (guia final)
 # =========================
 st.markdown("---")
 with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
