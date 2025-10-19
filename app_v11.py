@@ -19,7 +19,7 @@ import math
 # -------------------------
 # Configuração básica
 # -------------------------
-st.set_page_config(page_title="Strangle Vendido Coberto — v11", page_icon="💼", layout="wide")
+st.set_page_config(page_title="Strangle Vendido Coberto — v9", page_icon="💼", layout="wide")
 
 # CSS para legibilidade
 st.markdown("""
@@ -253,7 +253,7 @@ def business_days_between(d1: date, d2: date):
 # -------------------------
 # Layout principal
 # -------------------------
-st.title("💼 Strangle Vendido Coberto")
+st.title("💼 Strangle Vendido Coberto — v9")
 st.caption("Cole a option chain do opcoes.net, escolha o(s) vencimento(s) e veja as sugestões didáticas de strangle coberto.")
 
 # 1) Seleção de ticker
@@ -288,21 +288,26 @@ st.markdown(strike_html, unsafe_allow_html=True)
 # =========================
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
 
-# CONTROLES DE COBERTURA (mantidos)
+# --- COBERTURA (ajustes solicitados) ---
 qty_shares = st.sidebar.number_input(
     f"Ações em carteira ({user_ticker})",
-    0, 1_000_000, 0, step=100,
+    min_value=0,
+    max_value=1_000_000,
+    value=1000,              # padrão 1000
+    step=100,                # setinhas + / - pulam de 100 em 100
     help="Usado apenas para validar CALL coberta (✅/❌). Mais ações permitem mais lotes cobertos."
 )
-cash_avail = st.sidebar.text_input(
+
+cash_avail = st.sidebar.number_input(
     f"Caixa disponível (R$) ({user_ticker})",
-    value="0,00",
+    min_value=0.0,
+    value=1000.00,           # padrão 1000,00
+    step=100.00,             # setinhas + / - de 100 em 100
+    format="%.2f",
     help="Usado apenas para validar PUT coberta (✅/❌) no strike da PUT. Mais caixa permite mais lotes."
 )
-try:
-    cash_avail_val = br_to_float(cash_avail)
-except Exception:
-    cash_avail_val = 0.0
+cash_avail_val = float(cash_avail)
+
 contract_size = st.sidebar.number_input(
     f"Tamanho do contrato ({user_ticker})",
     1, 1000, CONTRACT_SIZE, step=1,
@@ -311,7 +316,7 @@ contract_size = st.sidebar.number_input(
 
 st.sidebar.markdown("---")
 
-# PERFIL DE RISCO (define todos os filtros e penalização)
+# PERFIL DE RISCO (define filtros e penalização)
 st.sidebar.markdown("### 🧭 Perfil de risco")
 risk_presets = {
     "Conservador": {"min_width": 0.08, "max_leg": 0.20, "max_comb": 0.15, "alpha": 3},
