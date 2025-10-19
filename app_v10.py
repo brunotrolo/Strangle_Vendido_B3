@@ -669,84 +669,121 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 """, unsafe_allow_html=True)
 
 # =========================
-# ℹ️ Guia (final) — texto do antigo sidebar movido para baixo
+# ℹ️ Guia (final) — bloco revisado
 # =========================
 st.markdown("---")
 with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
     st.markdown("""
-**Exemplo de referência**  
-- Spot: R$ 6,00  
-- Kp (PUT): R$ 5,50  
-- Kc (CALL): R$ 6,50  
-- Crédito/ação: R$ 0,18  
-- Contrato: 100 ações  
-- Lotes: 2
+**🔹 Exemplo de referência:**  
+spot = **R$ 6,00**, strikes **Kp = 5,50 / Kc = 6,50**, crédito/ação = **R$ 0,18**,  
+1 contrato = **100 ações**, 2 lotes = **200 ações**.
 
-**Volatilidade (HV20 %)**  
-- O que é: medida da oscilação recente do preço (proxy da volatilidade anual).  
-- Aumentar: prêmios sobem e a probabilidade de exercício (PoE) sobe.  
-- Diminuir: prêmios caem e a PoE cai.  
-- Exemplo: HV20 20% -> 30%: crédito de R$ 0,18 -> R$ 0,22; PoE PUT/CALL +3 a +5 p.p.
+---
 
-**Taxa r (anual %)**  
-- O que é: taxa livre de risco usada no Black–Scholes.  
-- Efeito: impacto pequeno sobre PoE e preço teórico.  
-- Exemplo: 10% -> 12%: variação de poucos centavos no crédito; PoE quase inalterado.
+### **Volatilidade (HV20 %)**
+Proxy da volatilidade anual (σ).  
+- **Aumentar:** prêmios ↑ e probabilidade de exercício (PoE) ↑.  
+- **Diminuir:** prêmios ↓ e PoE ↓.  
+> 💬 Exemplo: se a HV20 subir de **20 % → 30 %**, o crédito pode aumentar de **R$ 0,18 → R$ 0,22**,  
+> mas a PoE de PUT e CALL tende a subir **cerca de 3 a 5 p.p.**
 
-**Ações em carteira**  
-- O que é: valida CALL coberta (✅/❌).  
-- Aumentar: permite vender mais lotes cobertos.  
-- Exemplo: 1 contrato = 100 ações; 2 lotes exigem 200 ações.
+---
 
-**Caixa disponível (R$)**  
-- O que é: valida PUT coberta (✅/❌) no strike da PUT.  
-- Aumentar: viabiliza mais lotes de PUT coberta.  
-- Exemplo: Kp = 5,50; 2 lotes -> precisa de R$ 1.100 (2 x 100 x 5,50).
+### **Taxa r (anual %)**
+Taxa livre de risco usada no modelo Black–Scholes.  
+- Impacto pequeno; use algo próximo da **SELIC**.  
+> 💬 Exemplo: se a taxa subir de **10 % → 12 %**, o efeito no crédito é de **centavos**  
+> e a PoE praticamente **não se altera.**
 
-**Tamanho do contrato**  
-- O que é: número de ações por contrato.  
-- Aumentar: eleva o prêmio total e as exigências de cobertura.  
-- Exemplo: crédito/ação R$ 0,18 x 100 = R$ 18 por lote; com 2 lotes = R$ 36.
+---
 
-**Alerta de saída (dias)**  
-- O que é: define quando o aviso de tempo aparece.  
-- Diminuir: o alerta aparece mais cedo.  
-- Exemplo: com 7 dias, o aviso surge quando faltar <= 7 dias.
+### **Ações em carteira**
+Usado apenas para validar **CALL coberta (✅/❌)**.  
+- **Aumentar:** permite vender mais lotes cobertos.  
+> 💬 Exemplo: 1 contrato = **100 ações**.  
+> Se você tiver **200 ações**, pode operar **2 lotes** de CALL coberta.
 
-**Meta de captura do crédito (%)**  
-- O que é: alvo para encerrar com lucro.  
-- Aumentar: você tende a esperar capturar mais do crédito.  
-- Exemplo: crédito R$ 0,18 x 75% = R$ 0,135 por ação.
+---
 
-**Janela no strike (±%)**  
-- O que é: sensibilidade para avisos de “encostar” no strike.  
-- Aumentar: mais avisos; Diminuir: só quando muito perto.  
-- Exemplo: Kc = 6,50; janela 5% -> alerta se spot entre 6,18 e 6,83.
+### **Caixa disponível (R$)**
+Usado apenas para validar **PUT coberta (✅/❌)** no strike da PUT.  
+- **Aumentar:** viabiliza mais lotes de PUT coberta.  
+> 💬 Exemplo: com **Kp = 5,50** e **2 lotes**, é preciso ter  
+> **R$ 1.100 (2 × 100 × 5,50)** disponíveis em caixa.
 
-**Limite por perna (combinações)**  
-- O que é: quantos strikes por lado entram no cruzamento de pares.  
-- Aumentar: mais candidatos; processamento mais lento.  
-- Exemplo: 30 -> 100 combinações: cobre mais opções, mas leva mais tempo.
+---
 
-**Prob. máx por perna / média**  
-- O que é: filtros “duros” de PoE.  
-- Diminuir: setups mais conservadores (pode zerar a lista).  
-- Exemplo: média máx 20% -> descarta pares com PoE média > 20%.
+### **Tamanho do contrato**
+Número de ações por contrato (geralmente 100).  
+- **Aumentar:** eleva o **prêmio total** e também as **exigências de cobertura**.  
+> 💬 Exemplo: crédito/ação **R$ 0,18 × 100 = R$ 18** por lote;  
+> com **2 lotes = R$ 36** no total.
 
-**Penalização (α) no ranking**  
-- O que é: peso que pune PoE alta no score.  
-- Aumentar: prioriza segurança (PoE baixa), mesmo com prêmio menor.  
-- Exemplo: α = 2 -> 4: pares com p_inside maior sobem no ranking.
+---
 
-**Filtro por |Δ| (0,10 – 0,25)**  
-- O que é: restringe a deltas típicos de OTM “saudável” (se disponível).  
-- Ativar: reduz chance de exercício mantendo prêmio razoável.  
-- Exemplo: CALL com |Δ| 0,35 é descartada; |Δ| 0,18 passa.
+### **Alerta de saída (dias)**
+Define quando mostrar aviso de tempo até o vencimento.  
+- **Diminuir:** o alerta aparece mais cedo.  
+> 💬 Exemplo: com alerta em **7 dias**, o símbolo ⏳ aparece  
+> quando faltarem **7 dias ou menos** para o vencimento.
 
-**Largura mínima entre strikes (% do spot)**  
-- O que é: exige distância mínima entre Kp e Kc.  
-- Aumentar: reduz risco (pares mais “largos”), mas há menos candidatos.  
-- Exemplo: spot R$ 6,00; largura 6% -> Kc - Kp >= 0,36.
+---
+
+### **Meta de captura do crédito (%)**
+Alvo didático para encerrar a operação com lucro.  
+- **Aumentar:** você tende a esperar mais para encerrar.  
+> 💬 Exemplo: crédito **R$ 0,18 × 75 % = R$ 0,135 por ação**  
+> como meta de realização.
+
+---
+
+### **Janela no strike (±%)**
+Sensibilidade para avisos de “encostar” no strike.  
+- **Aumentar:** mais avisos.  
+- **Diminuir:** só quando o preço estiver muito próximo.  
+> 💬 Exemplo: com **Kc = 6,50** e janela de **±5 %**,  
+> o alerta aparece se o spot estiver entre **6,18 e 6,83.**
+
+---
+
+### **Limite por perna (combinações)**
+Número de strikes de PUT e CALL cruzados em pares.  
+- **Aumentar:** mais candidatos (app mais lento).  
+> 💬 Exemplo: **30 → 100** amplia a busca e pode revelar pares melhores,  
+> mas o cálculo leva mais tempo.
+
+---
+
+### **Probabilidade máx. por perna / média**
+Filtros “duros” de probabilidade de exercício.  
+- **Diminuir:** setups mais conservadores (pode zerar a lista).  
+> 💬 Exemplo: se a média máxima for **20 %**, o app descarta  
+> pares com PoE média **acima de 20 %.**
+
+---
+
+### **Penalização (α) no ranking**
+Peso da punição sobre probabilidades altas no cálculo do **score**.  
+- **Aumentar:** prioriza pares com **p_inside alto** (menor risco),  
+mesmo que o prêmio seja um pouco menor.  
+> 💬 Exemplo: com α **2 → 4**, pares com **p_inside** maior  
+> sobem no ranking.
+
+---
+
+### **Filtro por |Δ| (0,10–0,25)**
+Restringe a opções com deltas típicos de OTM saudável (se disponível).  
+- **Ativar:** reduz a chance de exercício mantendo prêmios razoáveis.  
+> 💬 Exemplo: CALL com |Δ| = **0,35** seria filtrada;  
+> |Δ| = **0,18** passaria.
+
+---
+
+### **Largura mínima entre strikes (% do spot)**
+Define a distância mínima entre Kp e Kc.  
+- **Aumentar:** menor risco (pares mais “largos”), menos candidatos.  
+> 💬 Exemplo: com spot **R$ 6,00** e largura mínima **6 %**,  
+> a diferença mínima entre strikes é **Kc − Kp ≥ 0,36.**
 """)
 
 # Rodapé
