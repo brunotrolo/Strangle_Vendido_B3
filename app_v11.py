@@ -1,6 +1,7 @@
 # app_v10.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
+# Sprint 1: (1) Indicador cobertura, (2) Largura dinâmica, (3) “Por que #1?”
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -27,6 +28,12 @@ st.markdown("""
 .strike-card{padding:.75rem 1rem; border:1px solid; border-radius:12px;}
 .strike-label{font-size:.95rem; margin-bottom:.15rem; opacity:.85;}
 .strike-value{font-size:1.6rem; font-weight:800;}
+.badge {display:inline-block; padding:4px 8px; border-radius:999px; font-weight:700; font-size:.85rem;}
+.badge-green {background:#10B98122; color:#065F46; border:1px solid #10B98166;}
+.badge-amber {background:#F59E0B22; color:#7C2D12; border:1px solid #F59E0B66;}
+.badge-red {background:#EF444422; color:#7F1D1D; border:1px solid #EF444466;}
+.note {color:#6b7280; font-size:.9rem;}
+.kv {background:#f3f4f6; padding:2px 6px; border-radius:6px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}
 @media (prefers-color-scheme: light) {
   .strike-card{ background:#fafafa; border-color:#e5e7eb; }
   .strike-label{ color:#4b5563; }
@@ -36,6 +43,7 @@ st.markdown("""
   .strike-card{ background:#111827; border-color:#374151; }
   .strike-label{ color:#d1d5db; }
   .strike-value{ color:#f9fafb; }
+  .kv {background:#111827; border:1px solid #374151; color:#e5e7eb;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -226,7 +234,7 @@ def parse_pasted_chain(text: str):
     out["last"]   = df[col_ultimo].apply(br_to_float)
     out["expiration"] = df[col_venc].apply(parse_date_br)
     out["impliedVol"] = df[col_iv].apply(pct_to_float) if col_iv else np.nan
-    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan  # <-- fix aqui
+    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan
 
     out = out[pd.notna(out["strike"]) & pd.notna(out["expiration"])].copy()
     return out.reset_index(drop=True)
@@ -334,17 +342,19 @@ comb_limit = st.sidebar.slider(
     help="Quantos strikes por lado entram na combinação (impacta cobertura da busca e desempenho). Aumentar gera mais combinações (mais lento)."
 )
 
-# ---------- Novos controles (priorizar baixa probabilidade) ----------
+# ---------- Preferência por Baixa Probabilidade + Presets dinâmicos ----------
 st.sidebar.markdown("### 🎯 Preferência por Baixa Probabilidade")
-max_poe_leg  = st.sidebar.slider(
+
+# Sliders originais (ajuste fino)
+max_poe_leg_slider  = st.sidebar.slider(
     "Prob. máx por perna (%)", 5, 50, 25, step=1,
     help="Filtro 'duro' por perna (PUT e CALL). Diminuir deixa o app mais conservador e pode reduzir fortemente os candidatos."
 ) / 100.0
-max_poe_comb = st.sidebar.slider(
+max_poe_comb_slider = st.sidebar.slider(
     "Prob. média máx (PUT/CALL) (%)", 5, 50, 20, step=1,
     help="Filtro 'duro' para a média da probabilidade das duas pernas. Diminuir prioriza setups com menor chance de exercício combinada."
 ) / 100.0
-alpha        = st.sidebar.slider(
+alpha_slider        = st.sidebar.slider(
     "Penalização por prob. (α)", 1, 5, 2, step=1,
     help="Peso da punição do ranking sobre probabilidades altas. Aumentar prioriza ainda mais PoE baixa mesmo se o prêmio for menor."
 )
@@ -352,10 +362,36 @@ use_delta_filter = st.sidebar.checkbox(
     "Filtrar por |Δ| ~ 0,10–0,25 (se disponível)", value=True,
     help="Quando marcado, restringe as pernas a deltas típicos de OTM saudável. Reduz chance de exercício mantendo prêmio razoável."
 )
-min_width_pct = st.sidebar.slider(
+min_width_pct_slider = st.sidebar.slider(
     "Largura mínima entre strikes (% do spot)", 1, 20, 6, step=1,
     help="Exige distância mínima entre Kp e Kc. Aumentar força pares mais 'largos' (menor risco), mas reduz candidatos."
 ) / 100.0
+
+# NOVO: Preset de risco que pode sobrepor os sliders (simples e didático)
+st.sidebar.markdown("#### 🧭 Perfil de risco (largura dinâmica)")
+risk_presets = {
+    "Conservador": {"min_width": 0.08, "max_leg": 0.20, "max_comb": 0.15, "alpha": 3},
+    "Neutro":      {"min_width": 0.06, "max_leg": 0.25, "max_comb": 0.20, "alpha": 2},
+    "Agressivo":   {"min_width": 0.04, "max_leg": 0.35, "max_comb": 0.25, "alpha": 1},
+}
+risk_choice = st.sidebar.selectbox("Escolha um preset", options=list(risk_presets.keys()), index=1)
+apply_preset = st.sidebar.checkbox("Aplicar preset automaticamente (sobrescreve sliders)", value=True)
+
+if apply_preset:
+    preset = risk_presets[risk_choice]
+    max_poe_leg  = preset["max_leg"]
+    max_poe_comb = preset["max_comb"]
+    alpha        = preset["alpha"]
+    min_width_pct = preset["min_width"]
+else:
+    max_poe_leg  = max_poe_leg_slider
+    max_poe_comb = max_poe_comb_slider
+    alpha        = alpha_slider
+    min_width_pct = min_width_pct_slider
+
+st.sidebar.caption(
+    f"Valores efetivos → Prob. máx/Perna: {int(max_poe_leg*100)}% · Prob. máx/Média: {int(max_poe_comb*100)}% · α: {alpha} · Largura mín.: {int(min_width_pct*100)}%"
+)
 
 # 4) Colar a option chain (com formulário para mobile)
 st.subheader(f"3) Colar a option chain de {user_ticker} (opcoes.net)")
@@ -490,15 +526,15 @@ if pairs_df.empty:
     st.warning("Não há pares de PUT e CALL OTM válidos para esse vencimento e preço à vista.")
     st.stop()
 
-# ---------- Largura mínima entre strikes ----------
+# ---------- Largura mínima entre strikes (usa valor efetivo) ----------
 width_ok = (pairs_df["Kc"] - pairs_df["Kp"]) >= (S * min_width_pct)
 pairs_df = pairs_df[width_ok]
 
 if pairs_df.empty:
-    st.warning("Todas as combinações ficaram abaixo da largura mínima entre strikes. Reduza o filtro de largura.")
+    st.warning("Todas as combinações ficaram abaixo da largura mínima entre strikes. Reduza o filtro de largura ou mude o preset.")
     st.stop()
 
-# ---------- Filtros duros de probabilidade ----------
+# ---------- Filtros duros de probabilidade (valores efetivos) ----------
 pairs_df["poe_leg_max"] = pairs_df[["poe_put","poe_call"]].max(axis=1)
 pairs_df["poe_comb"]    = pairs_df[["poe_put","poe_call"]].mean(axis=1)
 
@@ -509,10 +545,10 @@ pairs_df = pairs_df[
 ]
 
 if pairs_df.empty:
-    st.warning("Nenhuma combinação passou pelos limites de probabilidade. Tente relaxar os sliders de probabilidade.")
+    st.warning("Nenhuma combinação passou pelos limites de probabilidade. Tente relaxar os limites ou mude o preset.")
     st.stop()
 
-# ---------- Novo score com p_inside e penalização α ----------
+# ---------- Score com p_inside e penalização α (valor efetivo) ----------
 pairs_df["p_inside"] = (1 - pairs_df["poe_put"].fillna(0) - pairs_df["poe_call"].fillna(0)).clip(lower=0)
 pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** alpha)
 pairs_df = pairs_df.sort_values(["score","p_inside","credito"], ascending=[False, False, False]).reset_index(drop=True)
@@ -539,7 +575,7 @@ top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{
 top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
 top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
 top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
-top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")  # <-- fix do rótulo
+top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")
 
 def tag_risco(row):
     tags = []
@@ -577,6 +613,16 @@ for idx in top3.index:
     if idx not in st.session_state["lot_map"]:
         st.session_state["lot_map"][idx] = 0
 
+def coverage_badge(covered_call: bool, covered_put: bool):
+    # Semáforo simples (verde, âmbar, vermelho)
+    if covered_call and covered_put:
+        cls = "badge badge-green"; txt = "Cobertura: ✅ CALL · ✅ PUT"
+    elif covered_call or covered_put:
+        cls = "badge badge-amber"; txt = "Cobertura parcial"
+    else:
+        cls = "badge badge-red"; txt = "Sem cobertura"
+    return f'<span class="{cls}">{txt}</span>'
+
 for i, rw in top3.iterrows():
     rank = i + 1
     key_lotes = f"lots_{i}"
@@ -599,14 +645,18 @@ for i, rw in top3.iterrows():
         c2.metric("Break-evens (mín–máx)", f"{rw['be_low']:.2f} — {rw['be_high']:.2f}")
         c3.metric("Prob. exercício (PUT / CALL)", f"{100*rw['poe_put']:.1f}% / {100*rw['poe_call']:.1f}%")
 
-        # Cobertura
+        # Cobertura (Indicador + detalhes)
         required_shares = effective_contract_size * lots
         required_cash   = rw["Kp"] * effective_contract_size * lots
-        covered_call = qty_shares >= required_shares
-        covered_put  = (cash_avail_val if pd.notna(cash_avail_val) else 0.0) >= required_cash
+        covered_call = qty_shares >= required_shares if lots > 0 else True
+        covered_put  = (cash_avail_val if pd.notna(cash_avail_val) else 0.0) >= required_cash if lots > 0 else True
 
-        cov_msg = f"🛡️ Cobertura — CALL: {'✅' if covered_call else '❌'}  ·  PUT: {'✅' if covered_put else '❌'}"
-        st.caption(cov_msg)
+        st.markdown(coverage_badge(covered_call, covered_put), unsafe_allow_html=True)
+        st.caption(
+            f"CALL coberta exige **{required_shares} ações**; PUT coberta exige **{format_brl(required_cash)}** em caixa (no strike da PUT)."
+            + (" Nenhuma exigência enquanto lotes = 0." if lots == 0 else "")
+        )
+
         if not covered_call or not covered_put:
             st.warning(
                 f"Cobertura insuficiente para {lots} lote(s): "
@@ -628,6 +678,24 @@ for i, rw in top3.iterrows():
             st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
         if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
             st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
+
+        # “Por que #1?” — apenas para o primeiro card
+        if rank == 1:
+            with st.expander("🔎 Por que esta ficou em #1?"):
+                largura = rw["Kc"] - rw["Kp"]
+                st.markdown(
+                    f"- **Score** = `crédito × (p_inside^α)` = `{rw['credito']:.4f} × ({rw['p_inside']:.4f}^{alpha})` → **{rw['score']:.4f}**"
+                )
+                st.markdown(
+                    f"- **Probabilidades**: PoE PUT `{100*rw['poe_put']:.1f}%` · PoE CALL `{100*rw['poe_call']:.1f}%` · média `{100*((rw['poe_put']+rw['poe_call'])/2):.1f}%` (limite `{int(100*max_poe_comb)}%`)."
+                )
+                st.markdown(
+                    f"- **Largura entre strikes**: `Kc - Kp = {largura:.2f}` (mínimo exigido `{(S*min_width_pct):.2f}` com spot `{S:.2f}`)."
+                )
+                st.markdown(
+                    f"<span class='note'>Resumo: este par equilibra bom crédito com alta chance de ficar entre strikes (p_inside) e cumpre os filtros ativos do seu perfil.</span>",
+                    unsafe_allow_html=True
+                )
 
         # Explicações por sugestão
         with st.expander("📘 O que significa cada item?"):
@@ -669,84 +737,106 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 """, unsafe_allow_html=True)
 
 # =========================
-# ℹ️ Guia (final) — texto do antigo sidebar movido para baixo
+# ℹ️ Guia (final) — bloco robusto (sem “quebrar” em mobile)
 # =========================
 st.markdown("---")
 with st.expander("ℹ️ Como cada parâmetro afeta o Top 3"):
     st.markdown("""
-**Exemplo de referência**  
-- Spot: R$ 6,00  
-- Kp (PUT): R$ 5,50  
-- Kc (CALL): R$ 6,50  
-- Crédito/ação: R$ 0,18  
-- Contrato: 100 ações  
-- Lotes: 2
+**Exemplo de referência:**  
+`spot: R$ 6,00; strikes: Kp = 5,50 / Kc = 6,50; crédito/ação: R$ 0,18; contrato: 100 ações; lotes: 2.`
 
-**Volatilidade (HV20 %)**  
-- O que é: medida da oscilação recente do preço (proxy da volatilidade anual).  
-- Aumentar: prêmios sobem e a probabilidade de exercício (PoE) sobe.  
-- Diminuir: prêmios caem e a PoE cai.  
-- Exemplo: HV20 20% -> 30%: crédito de R$ 0,18 -> R$ 0,22; PoE PUT/CALL +3 a +5 p.p.
+---
 
-**Taxa r (anual %)**  
-- O que é: taxa livre de risco usada no Black–Scholes.  
-- Efeito: impacto pequeno sobre PoE e preço teórico.  
-- Exemplo: 10% -> 12%: variação de poucos centavos no crédito; PoE quase inalterado.
+### Volatilidade (HV20 %)
+Proxy da volatilidade anual (σ).  
+- Aumentar: prêmios ↑ e probabilidade de exercício (PoE) ↑.  
+- Diminuir: prêmios ↓ e PoE ↓.  
+**Exemplo:** `HV20 20% -> 30%` → crédito `R$ 0,18 -> R$ 0,22`; PoE PUT/CALL `+3 a +5 p.p.`
 
-**Ações em carteira**  
-- O que é: valida CALL coberta (✅/❌).  
+---
+
+### Taxa r (anual %)
+Taxa livre de risco usada no Black–Scholes.  
+- Impacto pequeno; use algo próximo da SELIC.  
+**Exemplo:** `10% -> 12%` → impacto de **centavos** no crédito; PoE quase **inalterada**.
+
+---
+
+### Ações em carteira
+Usado apenas para validar CALL coberta (✅/❌).  
 - Aumentar: permite vender mais lotes cobertos.  
-- Exemplo: 1 contrato = 100 ações; 2 lotes exigem 200 ações.
+**Exemplo:** `1 contrato = 100 ações`; com `200 ações` → até `2 lotes` de CALL coberta.
 
-**Caixa disponível (R$)**  
-- O que é: valida PUT coberta (✅/❌) no strike da PUT.  
+---
+
+### Caixa disponível (R$)
+Usado apenas para validar PUT coberta (✅/❌) no strike da PUT.  
 - Aumentar: viabiliza mais lotes de PUT coberta.  
-- Exemplo: Kp = 5,50; 2 lotes -> precisa de R$ 1.100 (2 x 100 x 5,50).
+**Exemplo:** `Kp = 5,50` e `2 lotes` → precisa de `R$ 1.100` (`2 x 100 x 5,50`).
 
-**Tamanho do contrato**  
-- O que é: número de ações por contrato.  
+---
+
+### Tamanho do contrato
+Número de ações por contrato (geralmente 100).  
 - Aumentar: eleva o prêmio total e as exigências de cobertura.  
-- Exemplo: crédito/ação R$ 0,18 x 100 = R$ 18 por lote; com 2 lotes = R$ 36.
+**Exemplo:** `R$ 0,18 x 100 = R$ 18` por lote; com `2 lotes` → `R$ 36`.
 
-**Alerta de saída (dias)**  
-- O que é: define quando o aviso de tempo aparece.  
+---
+
+### Alerta de saída (dias)
+Quando exibir aviso pelo tempo restante.  
 - Diminuir: o alerta aparece mais cedo.  
-- Exemplo: com 7 dias, o aviso surge quando faltar <= 7 dias.
+**Exemplo:** com alerta em `7 dias`, o ⏳ aparece quando faltam `<= 7` dias.
 
-**Meta de captura do crédito (%)**  
-- O que é: alvo para encerrar com lucro.  
-- Aumentar: você tende a esperar capturar mais do crédito.  
-- Exemplo: crédito R$ 0,18 x 75% = R$ 0,135 por ação.
+---
 
-**Janela no strike (±%)**  
-- O que é: sensibilidade para avisos de “encostar” no strike.  
-- Aumentar: mais avisos; Diminuir: só quando muito perto.  
-- Exemplo: Kc = 6,50; janela 5% -> alerta se spot entre 6,18 e 6,83.
+### Meta de captura do crédito (%)
+Alvo didático para encerrar com lucro.  
+- Aumentar: você tende a esperar mais.  
+**Exemplo:** meta `75%` → `R$ 0,18 x 0,75 = R$ 0,135` por ação.
 
-**Limite por perna (combinações)**  
-- O que é: quantos strikes por lado entram no cruzamento de pares.  
-- Aumentar: mais candidatos; processamento mais lento.  
-- Exemplo: 30 -> 100 combinações: cobre mais opções, mas leva mais tempo.
+---
 
-**Prob. máx por perna / média**  
-- O que é: filtros “duros” de PoE.  
+### Janela no strike (±%)
+Sensibilidade para avisos de “encostar” no strike.  
+- Aumentar: mais avisos.  
+- Diminuir: aviso só quando muito perto.  
+**Exemplo:** `Kc = 6,50` e janela `±5%` → alerta se spot entre `6,18` e `6,83`.
+
+---
+
+### Limite por perna (combinações)
+Quantos strikes por lado entram na combinação.  
+- Aumentar: mais candidatos (app mais lento).  
+**Exemplo:** `30 -> 100` amplia a busca; pode revelar pares melhores (leva mais tempo).
+
+---
+
+### Probabilidade máx. por perna / média
+Filtros “duros” de probabilidade de exercício.  
 - Diminuir: setups mais conservadores (pode zerar a lista).  
-- Exemplo: média máx 20% -> descarta pares com PoE média > 20%.
+**Exemplo:** média máx `20%` → descarta pares com PoE média `> 20%`.
 
-**Penalização (α) no ranking**  
-- O que é: peso que pune PoE alta no score.  
-- Aumentar: prioriza segurança (PoE baixa), mesmo com prêmio menor.  
-- Exemplo: α = 2 -> 4: pares com p_inside maior sobem no ranking.
+---
 
-**Filtro por |Δ| (0,10 – 0,25)**  
-- O que é: restringe a deltas típicos de OTM “saudável” (se disponível).  
-- Ativar: reduz chance de exercício mantendo prêmio razoável.  
-- Exemplo: CALL com |Δ| 0,35 é descartada; |Δ| 0,18 passa.
+### Penalização (α) no ranking
+Peso da punição para PoE alta no score.  
+- Aumentar: prioriza `p_inside` alto, mesmo com prêmio um pouco menor.  
+**Exemplo:** `α 2 -> 4` → pares com `p_inside` maior sobem no ranking.
 
-**Largura mínima entre strikes (% do spot)**  
-- O que é: exige distância mínima entre Kp e Kc.  
-- Aumentar: reduz risco (pares mais “largos”), mas há menos candidatos.  
-- Exemplo: spot R$ 6,00; largura 6% -> Kc - Kp >= 0,36.
+---
+
+### Filtro por |Δ| (0,10–0,25)
+Restringe a deltas típicos de OTM saudável (se disponível).  
+- Ativar: tende a reduzir PoE mantendo prêmios razoáveis.  
+**Exemplo:** CALL com `|Δ| = 0,35` seria filtrada; com `|Δ| = 0,18` passaria.
+
+---
+
+### Largura mínima entre strikes (% do spot)
+Exige distância mínima entre Kp e Kc.  
+- Aumentar: menos risco (pares mais “largos”), menos candidatos.  
+**Exemplo:** `spot R$ 6,00` e largura `6%` → exige `Kc - Kp >= 0,36`.
 """)
 
 # Rodapé
