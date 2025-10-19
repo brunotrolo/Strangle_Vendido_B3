@@ -19,7 +19,7 @@ import math
 # -------------------------
 # Configuração básica
 # -------------------------
-st.set_page_config(page_title="Strangle Vendido Coberto — v9", page_icon="💼", layout="wide")
+st.set_page_config(page_title="Strangle Vendido Coberto — v11", page_icon="💼", layout="wide")
 
 # CSS para legibilidade
 st.markdown("""
