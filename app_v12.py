@@ -806,14 +806,17 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
             c1, c2, c3 = st.columns(3)
             state["meta"] = c1.checkbox(
                 f"🎯 Capturou ~{meta_captura}% do crédito", value=state.get("meta", False),
+                key=f"chk_meta_{chk_key}",  # <-- chave única para evitar StreamlitDuplicateElementId
                 help="Objetivo didático de realização definida por você."
             )
             state["call"] = c2.checkbox(
                 f"🔺 Preço encostou no strike da CALL (Kc={rw['Kc']:.2f})", value=state.get("call", False),
+                key=f"chk_call_{chk_key}",  # <-- chave única
                 help="Spot dentro da janela definida ao redor do strike da CALL."
             )
             state["tempo"] = c3.checkbox(
                 f"⏳ Faltam ≤ {dias_alerta} dias", value=state.get("tempo", False),
+                key=f"chk_tempo_{chk_key}",  # <-- chave única
                 help="Janela de tempo que você configurou nos alertas."
             )
 
