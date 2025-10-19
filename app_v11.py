@@ -3,6 +3,7 @@
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
 # Sprint 1 + Multi-vencimentos + Top N (3..10)
 # Sidebar simplificada por presets (mantém só filtro por |Δ|)
+# Ajuste: parse_pasted_chain ignora título "Opções ..." e linha seguinte
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -194,10 +195,26 @@ def parse_pasted_chain(text: str):
     if not text or text.strip() == "":
         return pd.DataFrame()
 
-    raw = text.strip()
+    # Normaliza NBSP e recorta o título/linha em branco do opcoes.net
+    raw = text.replace("\u00A0", " ").strip()
+
+    # Remove 1ª (título "Opções ...") e, se existir, 2ª linha vazia
+    lines = raw.splitlines()
+    if len(lines) >= 1:
+        first = lines[0].strip().lower()
+        if ("opções" in first) or ("opcoes" in first):
+            # Se a 2ª linha for vazia, remove também
+            if len(lines) >= 2 and lines[1].strip() == "":
+                lines = lines[2:]
+            else:
+                lines = lines[1:]
+    raw = "\n".join(lines).strip()
+
+    # Se não vier com TAB, tenta converter múltiplos espaços em TAB
     if "\t" not in raw:
         raw = re.sub(r"[ ]{2,}", "\t", raw)
 
+    # Tenta ler como TSV (ou ; como fallback)
     try:
         df = pd.read_csv(io.StringIO(raw), sep="\t", engine="python")
     except Exception:
@@ -206,6 +223,7 @@ def parse_pasted_chain(text: str):
         except Exception:
             return pd.DataFrame()
 
+    # Padroniza nomes de colunas
     cols = {c: c.strip() for c in df.columns}
     df.rename(columns=cols, inplace=True)
 
@@ -217,25 +235,25 @@ def parse_pasted_chain(text: str):
                     return c
         return None
 
-    col_ticker = find_col(["ticker"])
-    col_venc = find_col(["venc", "vencimento"])
-    col_tipo = find_col(["tipo"])
+    col_ticker = find_col(["ticker", "código", "codigo", "símbolo", "simbolo"])
+    col_venc   = find_col(["venc", "vencimento"])
+    col_tipo   = find_col(["tipo"])
     col_strike = find_col(["strike"])
     col_ultimo = find_col(["último", "ultimo", "last"])
-    col_iv = find_col(["vol. impl", "vol impl", "impl", "iv"])
-    col_delta = find_col(["delta"])
+    col_iv     = find_col(["vol. impl", "vol impl", "impl", "iv"])
+    col_delta  = find_col(["delta"])
 
     if not all([col_ticker, col_venc, col_tipo, col_strike, col_ultimo]):
         return pd.DataFrame()
 
     out = pd.DataFrame()
-    out["symbol"] = df[col_ticker].astype(str).str.strip()
-    out["type"] = df[col_tipo].astype(str).str.upper().str.contains("CALL").map({True:"C", False:"P"})
-    out["strike"] = df[col_strike].apply(br_to_float)
-    out["last"]   = df[col_ultimo].apply(br_to_float)
+    out["symbol"]     = df[col_ticker].astype(str).str.strip()
+    out["type"]       = df[col_tipo].astype(str).str.upper().str.contains("CALL").map({True: "C", False: "P"})
+    out["strike"]     = df[col_strike].apply(br_to_float)
+    out["last"]       = df[col_ultimo].apply(br_to_float)
     out["expiration"] = df[col_venc].apply(parse_date_br)
     out["impliedVol"] = df[col_iv].apply(pct_to_float) if col_iv else np.nan
-    out["delta"] = df[col_delta].apply(br_to_float) if col_delta else np.nan
+    out["delta"]      = df[col_delta].apply(br_to_float) if col_delta else np.nan
 
     out = out[pd.notna(out["strike"]) & pd.notna(out["expiration"])].copy()
     return out.reset_index(drop=True)
@@ -288,7 +306,7 @@ st.markdown(strike_html, unsafe_allow_html=True)
 # =========================
 st.sidebar.header("⚙️ Parâmetros & Cobertura")
 
-# --- COBERTURA (ajustes solicitados) ---
+# --- COBERTURA (defaults 1000 + number_input no caixa) ---
 qty_shares = st.sidebar.number_input(
     f"Ações em carteira ({user_ticker})",
     min_value=0,
