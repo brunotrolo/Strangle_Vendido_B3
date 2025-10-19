@@ -1,7 +1,7 @@
 # app_v10.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
-# Sprint 1 + Multi-vencimentos no ranking
+# Sprint 1 + Multi-vencimentos + Top N (3..10)
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -458,6 +458,13 @@ if not selected_exps:
     st.warning("Selecione pelo menos um vencimento para continuar.")
     st.stop()
 
+# ---------- NOVO: Quantidade de recomendações (Top N) ----------
+st.markdown("### 🔢 Quantidade de recomendações (Top N)")
+top_n = st.slider(
+    "Escolha quantas recomendações exibir (sempre a partir das melhores):",
+    min_value=3, max_value=10, value=3, step=1
+)
+
 today = datetime.utcnow().date()
 
 # -------------------------
@@ -573,8 +580,8 @@ if not all_pairs:
 all_df = pd.concat(all_pairs, ignore_index=True)
 all_df = all_df.sort_values(["score","p_inside","credito"], ascending=[False, False, False]).reset_index(drop=True)
 
-# 8) Top 3 geral + flags de alerta (usando days_to_exp por linha)
-top3 = all_df.head(3).copy()
+# 8) Top N geral + flags de alerta (usando days_to_exp por linha)
+top_df = all_df.head(top_n).copy()
 
 def near_strike(price, strike, pct):
     try:
@@ -582,24 +589,23 @@ def near_strike(price, strike, pct):
     except Exception:
         return False
 
-top3["alert_call"] = top3.apply(lambda r: near_strike(S, r["Kc"], janela_pct), axis=1)
-top3["alert_put"]  = top3.apply(lambda r: near_strike(S, r["Kp"], janela_pct), axis=1)
-top3["alert_days"] = top3["days_to_exp"] <= dias_alerta
+top_df["alert_call"] = top_df.apply(lambda r: near_strike(S, r["Kc"], janela_pct), axis=1)
+top_df["alert_put"]  = top_df.apply(lambda r: near_strike(S, r["Kp"], janela_pct), axis=1)
+top_df["alert_days"] = top_df["days_to_exp"] <= dias_alerta
 
-# --- Tabela Top 3
-top3_display = top3.copy()
-top3_display["Vencimento"] = top3_display["expiration"].map(lambda d: d.strftime("%Y-%m-%d"))
-top3_display["Prêmio PUT (R$)"]   = top3_display["premio_put"].map(lambda x: f"{x:.2f}")
-top3_display["Prêmio CALL (R$)"]  = top3_display["premio_call"].map(lambda x: f"{x:.2f}")
-top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{x:.2f}")
-top3_display["Break-evens (mín–máx)"] = top3_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
-top3_display["Prob. exercício PUT (%)"]  = (100*top3_display["poe_put"]).map(lambda x: f"{x:.1f}")
-top3_display["Prob. exercício CALL (%)"] = (100*top3_display["poe_call"]).map(lambda x: f"{x:.1f}")
-top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x:.1f}")
+# --- Tabela Top N
+top_display = top_df.copy()
+top_display["Vencimento"] = top_display["expiration"].map(lambda d: d.strftime("%Y-%m-%d"))
+top_display["Prêmio PUT (R$)"]   = top_display["premio_put"].map(lambda x: f"{x:.2f}")
+top_display["Prêmio CALL (R$)"]  = top_display["premio_call"].map(lambda x: f"{x:.2f}")
+top_display["Crédito/ação (R$)"] = top_display["credito"].map(lambda x: f"{x:.2f}")
+top_display["Break-evens (mín–máx)"] = top_display.apply(lambda r: f"{r['be_low']:.2f} — {r['be_high']:.2f}", axis=1)
+top_display["Prob. exercício PUT (%)"]  = (100*top_display["poe_put"]).map(lambda x: f"{x:.1f}")
+top_display["Prob. exercício CALL (%)"] = (100*top_display["poe_call"]).map(lambda x: f"{x:.1f}")
+top_display["p_dentro (%)"] = (100*top_display["p_inside"]).map(lambda x: f"{x:.1f}")
 
 def tag_risco(row):
     tags = []
-    # usa limites efetivos atuais
     if row["poe_leg_max"] > (max_poe_leg * 0.9):
         tags.append("⚠️ prob. por perna alta")
     if row["poe_comb"] > (max_poe_comb * 0.9):
@@ -608,9 +614,9 @@ def tag_risco(row):
         tags.append("🎯 dentro < 70%")
     return " · ".join(tags)
 
-top3_display["Notas"] = top3.apply(tag_risco, axis=1)
+top_display["Notas"] = top_df.apply(tag_risco, axis=1)
 
-top3_display = top3_display[[
+top_display = top_display[[
     "Vencimento",
     "PUT","Kp",
     "CALL","Kc",
@@ -620,18 +626,19 @@ top3_display = top3_display[[
     "p_dentro (%)",
     "Notas"
 ]]
-top3_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
+top_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
 
-st.subheader("🏆 Top 3 (todas as datas selecionadas)")
-st.dataframe(top3_display, use_container_width=True, hide_index=True)
+st.subheader(f"🏆 Top {top_n} (datas selecionadas)")
+st.dataframe(top_display, use_container_width=True, hide_index=True)
 
 # 9) Cartões detalhados (com vencimento por linha)
 st.markdown("—")
 st.subheader("📋 Recomendações detalhadas")
 
+# mapa de lotes por índice do top_df
 if "lot_map" not in st.session_state:
     st.session_state["lot_map"] = {}
-for idx in top3.index:
+for idx in top_df.index:
     if idx not in st.session_state["lot_map"]:
         st.session_state["lot_map"][idx] = 0
 
@@ -645,7 +652,7 @@ def coverage_badge(covered_call: bool, covered_put: bool):
         cls = "badge badge-red"; txt = "Sem cobertura"
     return f'<span class="{cls}">{txt}</span>'
 
-for i, rw in top3.iterrows():
+for i, rw in top_df.iterrows():
     rank = i + 1
     key_lotes = f"lots_{i}"
     lots = st.number_input(
@@ -720,7 +727,7 @@ for i, rw in top3.iterrows():
                     unsafe_allow_html=True
                 )
 
-        # Explicações por sugestão (mantido)
+        # Explicações por sugestão
         with st.expander("📘 O que significa cada item?"):
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
