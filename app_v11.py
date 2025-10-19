@@ -253,7 +253,7 @@ def business_days_between(d1: date, d2: date):
 # -------------------------
 # Layout principal
 # -------------------------
-st.title("💼 Strangle Vendido Coberto — v9")
+st.title("💼 Strangle Vendido Coberto")
 st.caption("Cole a option chain do opcoes.net, escolha o(s) vencimento(s) e veja as sugestões didáticas de strangle coberto.")
 
 # 1) Seleção de ticker
