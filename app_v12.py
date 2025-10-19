@@ -773,25 +773,21 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 """, unsafe_allow_html=True)
 
         # === Checklist de Saída (didático) ===
-        # estado por sugestão
         if "checklist_state" not in st.session_state:
             st.session_state["checklist_state"] = {}
 
         chk_key = f"{side_key}_{idx}_{rw['PUT']}_{rw['CALL']}"
         state = st.session_state["checklist_state"].get(chk_key, {"meta": False, "call": False, "tempo": False, "nota": ""})
 
-        # Pré-marcação inteligente (sem automatizar decisão)
-        meta_auto = False  # futuramente: quando houver tracking de crédito capturado
+        # Pré-marcação (não automatiza decisão)
+        meta_auto = False
         call_auto = abs(spot - rw["Kc"]) <= rw["Kc"] * (janela_pct / 100.0)
         tempo_auto = rw["days_to_exp"] <= dias_alerta
-
-        # defaults apenas na primeira vez
         if chk_key not in st.session_state["checklist_state"]:
             state["meta"] = meta_auto
             state["call"] = call_auto
             state["tempo"] = tempo_auto
 
-        # Badges no topo do card
         badges = []
         if state.get("meta"):
             badges.append('<span class="badge badge-green">🎯 Meta atingida</span>')
@@ -806,17 +802,17 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
             c1, c2, c3 = st.columns(3)
             state["meta"] = c1.checkbox(
                 f"🎯 Capturou ~{meta_captura}% do crédito", value=state.get("meta", False),
-                key=f"chk_meta_{chk_key}",  # <-- chave única para evitar StreamlitDuplicateElementId
+                key=f"chk_meta_{chk_key}",
                 help="Objetivo didático de realização definida por você."
             )
             state["call"] = c2.checkbox(
                 f"🔺 Preço encostou no strike da CALL (Kc={rw['Kc']:.2f})", value=state.get("call", False),
-                key=f"chk_call_{chk_key}",  # <-- chave única
+                key=f"chk_call_{chk_key}",
                 help="Spot dentro da janela definida ao redor do strike da CALL."
             )
             state["tempo"] = c3.checkbox(
                 f"⏳ Faltam ≤ {dias_alerta} dias", value=state.get("tempo", False),
-                key=f"chk_tempo_{chk_key}",  # <-- chave única
+                key=f"chk_tempo_{chk_key}",
                 help="Janela de tempo que você configurou nos alertas."
             )
 
@@ -831,14 +827,6 @@ Cada lote = vender <b>1 PUT + 1 CALL</b>. Cada contrato = <b>{effective_contract
 | ⏳ Pouco tempo (≤{dias} dias) | **Rolar** a posição para o próximo vencimento (mesmo strike ou ajustado). | **Compre** as opções atuais para zerar e **venda** novo par (PUT+CALL) no vencimento seguinte. |
 """.format(meta=int(meta_captura), call_sym=rw['CALL'], dias=int(dias_alerta)))
 
-                state["nota"] = st.text_area(
-                    "📝 Anotação (opcional): descreva o que fez ou pretende fazer",
-                    value=state.get("nota", ""),
-                    key=f"nota_{chk_key}",
-                    height=90
-                )
-
-        # persiste estado
         st.session_state["checklist_state"][chk_key] = state
 
 # =============== Execução principal (1 ou 2 cenários) ===============
@@ -907,6 +895,24 @@ if compare_two:
     compute_and_render_compare(preset_left, preset_right)
 else:
     compute_and_render_single(preset_left)
+
+# =========================
+# 🧩 Resumo das Ações Marcadas
+# =========================
+st.markdown("---")
+st.subheader("🧩 Resumo das ações marcadas")
+_any = False
+if "checklist_state" in st.session_state:
+    for _key, _stt in st.session_state["checklist_state"].items():
+        if any([_stt.get("meta"), _stt.get("call"), _stt.get("tempo")]):
+            _any = True
+            badges = []
+            if _stt.get("meta"): badges.append("🎯 Meta")
+            if _stt.get("call"): badges.append("🔺 CALL")
+            if _stt.get("tempo"): badges.append("⏳ Tempo")
+            st.markdown(f"- **{_key}** → " + " · ".join(badges), unsafe_allow_html=True)
+if not _any:
+    st.info("Nenhuma ação marcada ainda. Marque os checkboxes nos cards acima para ver o resumo consolidado aqui.")
 
 # =========================
 # ℹ️ Como cada parâmetro afeta o Top 3 (guia final)
