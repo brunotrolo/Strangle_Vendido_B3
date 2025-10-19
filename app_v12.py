@@ -909,11 +909,6 @@ else:
     compute_and_render_single(preset_left)
 
 # =========================
-# 🧩 Resumo das Ações Marcadas
-# =========================
-
-
-# =========================
 # ℹ️ Como cada parâmetro afeta o Top 3 (guia final)
 # =========================
 st.markdown("---")
