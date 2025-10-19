@@ -1,7 +1,7 @@
 # app_v10.py
 # ------------------------------------------------------------
 # Strangle Vendido Coberto — v9 (com priorização por baixa probabilidade)
-# Sprint 1: (1) Indicador cobertura, (2) Largura dinâmica, (3) “Por que #1?”
+# Sprint 1 + Multi-vencimentos no ranking
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -253,7 +253,7 @@ def business_days_between(d1: date, d2: date):
 # Layout principal
 # -------------------------
 st.title("💼 Strangle Vendido Coberto — v9")
-st.caption("Cole a option chain do opcoes.net, escolha o vencimento e veja as sugestões didáticas de strangle coberto.")
+st.caption("Cole a option chain do opcoes.net, escolha o(s) vencimento(s) e veja as sugestões didáticas de strangle coberto.")
 
 # 1) Seleção de ticker
 st.markdown('<div class="big-title">🔎 Selecione pelo nome da empresa ou ticker</div><div class="small-help">Digite para pesquisar por nome ou código.</div>', unsafe_allow_html=True)
@@ -367,7 +367,7 @@ min_width_pct_slider = st.sidebar.slider(
     help="Exige distância mínima entre Kp e Kc. Aumentar força pares mais 'largos' (menor risco), mas reduz candidatos."
 ) / 100.0
 
-# NOVO: Preset de risco que pode sobrepor os sliders (simples e didático)
+# Preset de risco que pode sobrepor os sliders (simples e didático)
 st.sidebar.markdown("#### 🧭 Perfil de risco (largura dinâmica)")
 risk_presets = {
     "Conservador": {"min_width": 0.08, "max_leg": 0.20, "max_comb": 0.15, "alpha": 3},
@@ -433,129 +433,148 @@ if df_chain.empty:
     st.error("Não consegui interpretar a tabela colada. Verifique se os títulos/colunas vieram corretamente e toque em **Confirmar** novamente.")
     st.stop()
 
-# 5) Selecionar vencimento
+# 5) Selecionar vencimentos (agora multi)
 unique_exps = sorted([d for d in df_chain["expiration"].dropna().unique()])
 if not unique_exps:
     st.error("Não identifiquei a coluna de Vencimento na tabela colada.")
     st.stop()
 
-sel_exp = st.selectbox(
-    "📅 Vencimento — escolha uma data:",
-    options=unique_exps,
-    format_func=lambda d: d.strftime("%Y-%m-%d"),
-    help="Selecione o vencimento para o qual você colou a option chain."
-)
+st.markdown("### 📅 Vencimento — escolha uma ou mais datas")
+col_v1, col_v2 = st.columns([1, 1])
+with col_v1:
+    selected_exps = st.multiselect(
+        "Datas disponíveis:",
+        options=unique_exps,
+        default=[unique_exps[0]] if len(unique_exps) > 0 else [],
+        format_func=lambda d: d.strftime("%Y-%m-%d"),
+        help="Selecione uma ou várias datas. Você também pode marcar 'Selecionar todos'."
+    )
+with col_v2:
+    select_all = st.checkbox("Selecionar todos os vencimentos", value=False)
+if select_all:
+    selected_exps = unique_exps.copy()
+
+if not selected_exps:
+    st.warning("Selecione pelo menos um vencimento para continuar.")
+    st.stop()
+
 today = datetime.utcnow().date()
-bus_days = business_days_between(today, sel_exp)
-T_years = float(bus_days) / 252.0 if pd.notna(bus_days) and bus_days > 0 else 1/252.0
 
-# 6) Filtrar pela data e calcular métricas
-df = df_chain[df_chain["expiration"] == sel_exp].copy().reset_index(drop=True)
-
-# Fallbacks de preço: usar 'last' como mid/credito unitário por opção
-df["price"] = df["last"].astype(float)
-
-# sigma por opção: IV se houver, senão HV20 proxy
-sigma_proxy = hv20_input / 100.0
-df["sigma"] = df["impliedVol"].fillna(sigma_proxy)
-
-# separa calls/puts e aplica condição OTM
-S = float(spot) if pd.notna(spot) and spot > 0 else df["strike"].median()
-calls = df[df["type"] == "C"].copy()
-puts  = df[df["type"] == "P"].copy()
-
-calls["OTM"] = calls["strike"].astype(float) > S
-puts["OTM"]  = puts["strike"].astype(float)  < S
-
-# --- filtro opcional por Delta quando disponível ---
-if use_delta_filter and "delta" in df.columns:
-    calls = calls[calls["OTM"] & pd.notna(calls["price"]) & calls["delta"].abs().between(0.10, 0.25, inclusive="both")]
-    puts  = puts[puts["OTM"]  & pd.notna(puts["price"])  & puts["delta"].abs().between(0.10, 0.25, inclusive="both")]
-else:
-    calls = calls[calls["OTM"] & pd.notna(calls["price"])]
-    puts  = puts[puts["OTM"]  & pd.notna(puts["price"])]
-
-if calls.empty or puts.empty:
-    st.warning("Não encontrei CALL e PUT OTM simultaneamente nesse vencimento. Experimente ajustar filtros (Delta/limites).")
-    st.stop()
-
-# PoE (probabilidade de exercício)
+# -------------------------
+# 6) Processar cada vencimento e juntar tudo
+# -------------------------
+S = float(spot) if pd.notna(spot) and spot > 0 else df_chain["strike"].median()
 r = r_input / 100.0
-def poe_side(row, side):
-    K = float(row["strike"])
-    sig = float(row["sigma"]) if pd.notna(row["sigma"]) and row["sigma"] > 0 else sigma_proxy
-    return prob_ITM_call(S, K, r, sig, T_years) if side == "C" else prob_ITM_put(S, K, r, sig, T_years)
+sigma_proxy = hv20_input / 100.0
 
-puts["poe"]  = puts.apply(lambda rw: poe_side(rw, "P"), axis=1)
-calls["poe"] = calls.apply(lambda rw: poe_side(rw, "C"), axis=1)
+all_pairs = []
 
-# 7) Combinações PUT x CALL (limitadas para velocidade) — configurável
-comb_limit = int(comb_limit)
-puts_small  = puts.sort_values(["price"], ascending=False).head(comb_limit).copy()
-calls_small = calls.sort_values(["price"], ascending=False).head(comb_limit).copy()
+def poe_side_local(S, K, r, sig, T, side):
+    return prob_ITM_call(S, K, r, sig, T) if side == "C" else prob_ITM_put(S, K, r, sig, T)
 
-pairs = []
-for _, prow in puts_small.iterrows():
-    for _, crow in calls_small.iterrows():
-        kp = float(prow["strike"]); kc = float(crow["strike"])
-        if not (kp < S < kc):
-            continue
-        prem_put  = float(prow["price"])
-        prem_call = float(crow["price"])
-        cred = prem_put + prem_call
-        be_low  = kp - cred
-        be_high = kc + cred
-        poe_p = float(prow["poe"]) if pd.notna(prow["poe"]) else np.nan
-        poe_c = float(crow["poe"]) if pd.notna(crow["poe"]) else np.nan
-        pairs.append({
-            "PUT": prow["symbol"],
-            "CALL": crow["symbol"],
-            "Kp": kp,
-            "Kc": kc,
-            "premio_put": prem_put,
-            "premio_call": prem_call,
-            "credito": cred,
-            "be_low": be_low,
-            "be_high": be_high,
-            "poe_put": poe_p,
-            "poe_call": poe_c,
-        })
+for this_exp in selected_exps:
+    bus_days = business_days_between(today, this_exp)
+    T_years  = float(bus_days) / 252.0 if pd.notna(bus_days) and bus_days > 0 else 1/252.0
 
-pairs_df = pd.DataFrame(pairs)
-if pairs_df.empty:
-    st.warning("Não há pares de PUT e CALL OTM válidos para esse vencimento e preço à vista.")
+    df = df_chain[df_chain["expiration"] == this_exp].copy().reset_index(drop=True)
+    if df.empty:
+        continue
+
+    df["price"] = df["last"].astype(float)
+    df["sigma"] = df["impliedVol"].fillna(sigma_proxy)
+
+    calls = df[df["type"] == "C"].copy()
+    puts  = df[df["type"] == "P"].copy()
+    calls["OTM"] = calls["strike"].astype(float) > S
+    puts["OTM"]  = puts["strike"].astype(float)  < S
+
+    if use_delta_filter and "delta" in df.columns:
+        calls = calls[calls["OTM"] & pd.notna(calls["price"]) & calls["delta"].abs().between(0.10, 0.25, inclusive="both")]
+        puts  = puts[puts["OTM"]  & pd.notna(puts["price"])  & puts["delta"].abs().between(0.10, 0.25, inclusive="both")]
+    else:
+        calls = calls[calls["OTM"] & pd.notna(calls["price"])]
+        puts  = puts[puts["OTM"]  & pd.notna(puts["price"])]
+
+    if calls.empty or puts.empty:
+        continue
+
+    # PoE por perna
+    puts["poe"]  = puts.apply(lambda rw: poe_side_local(S, float(rw["strike"]), r, float(rw["sigma"]) if pd.notna(rw["sigma"]) and rw["sigma"]>0 else sigma_proxy, T_years, "P"), axis=1)
+    calls["poe"] = calls.apply(lambda rw: poe_side_local(S, float(rw["strike"]), r, float(rw["sigma"]) if pd.notna(rw["sigma"]) and rw["sigma"]>0 else sigma_proxy, T_years, "C"), axis=1)
+
+    # Combinações controladas
+    plim = int(comb_limit)
+    puts_small  = puts.sort_values(["price"], ascending=False).head(plim).copy()
+    calls_small = calls.sort_values(["price"], ascending=False).head(plim).copy()
+
+    pairs = []
+    for _, prow in puts_small.iterrows():
+        for _, crow in calls_small.iterrows():
+            kp = float(prow["strike"]); kc = float(crow["strike"])
+            if not (kp < S < kc):
+                continue
+            prem_put  = float(prow["price"])
+            prem_call = float(crow["price"])
+            cred = prem_put + prem_call
+            be_low  = kp - cred
+            be_high = kc + cred
+            poe_p = float(prow["poe"]) if pd.notna(prow["poe"]) else np.nan
+            poe_c = float(crow["poe"]) if pd.notna(crow["poe"]) else np.nan
+            pairs.append({
+                "expiration": this_exp,
+                "days_to_exp": bus_days,
+                "PUT": prow["symbol"],
+                "CALL": crow["symbol"],
+                "Kp": kp,
+                "Kc": kc,
+                "premio_put": prem_put,
+                "premio_call": prem_call,
+                "credito": cred,
+                "be_low": be_low,
+                "be_high": be_high,
+                "poe_put": poe_p,
+                "poe_call": poe_c,
+            })
+
+    if not pairs:
+        continue
+
+    pairs_df = pd.DataFrame(pairs)
+
+    # Largura mínima entre strikes (valor efetivo)
+    width_ok = (pairs_df["Kc"] - pairs_df["Kp"]) >= (S * min_width_pct)
+    pairs_df = pairs_df[width_ok]
+    if pairs_df.empty:
+        continue
+
+    # Filtros duros de probabilidade (valor efetivo)
+    pairs_df["poe_leg_max"] = pairs_df[["poe_put","poe_call"]].max(axis=1)
+    pairs_df["poe_comb"]    = pairs_df[["poe_put","poe_call"]].mean(axis=1)
+
+    pairs_df = pairs_df[
+        (pairs_df["poe_put"]  <= max_poe_leg) &
+        (pairs_df["poe_call"] <= max_poe_leg) &
+        (pairs_df["poe_comb"] <= max_poe_comb)
+    ]
+    if pairs_df.empty:
+        continue
+
+    # Score com p_inside e penalização α (valor efetivo)
+    pairs_df["p_inside"] = (1 - pairs_df["poe_put"].fillna(0) - pairs_df["poe_call"].fillna(0)).clip(lower=0)
+    pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** alpha)
+
+    all_pairs.append(pairs_df)
+
+# Junta todos os vencimentos selecionados
+if not all_pairs:
+    st.warning("Nenhuma combinação válida após aplicar filtros e largura mínima nos vencimentos selecionados. Ajuste os filtros/preset.")
     st.stop()
 
-# ---------- Largura mínima entre strikes (usa valor efetivo) ----------
-width_ok = (pairs_df["Kc"] - pairs_df["Kp"]) >= (S * min_width_pct)
-pairs_df = pairs_df[width_ok]
+all_df = pd.concat(all_pairs, ignore_index=True)
+all_df = all_df.sort_values(["score","p_inside","credito"], ascending=[False, False, False]).reset_index(drop=True)
 
-if pairs_df.empty:
-    st.warning("Todas as combinações ficaram abaixo da largura mínima entre strikes. Reduza o filtro de largura ou mude o preset.")
-    st.stop()
-
-# ---------- Filtros duros de probabilidade (valores efetivos) ----------
-pairs_df["poe_leg_max"] = pairs_df[["poe_put","poe_call"]].max(axis=1)
-pairs_df["poe_comb"]    = pairs_df[["poe_put","poe_call"]].mean(axis=1)
-
-pairs_df = pairs_df[
-    (pairs_df["poe_put"]  <= max_poe_leg) &
-    (pairs_df["poe_call"] <= max_poe_leg) &
-    (pairs_df["poe_comb"] <= max_poe_comb)
-]
-
-if pairs_df.empty:
-    st.warning("Nenhuma combinação passou pelos limites de probabilidade. Tente relaxar os limites ou mude o preset.")
-    st.stop()
-
-# ---------- Score com p_inside e penalização α (valor efetivo) ----------
-pairs_df["p_inside"] = (1 - pairs_df["poe_put"].fillna(0) - pairs_df["poe_call"].fillna(0)).clip(lower=0)
-pairs_df["score"] = pairs_df["credito"] * (pairs_df["p_inside"] ** alpha)
-pairs_df = pairs_df.sort_values(["score","p_inside","credito"], ascending=[False, False, False]).reset_index(drop=True)
-
-# 8) Top 3 + flags de alerta
-top3 = pairs_df.head(3).copy()
-top3["days_to_exp"] = bus_days
+# 8) Top 3 geral + flags de alerta (usando days_to_exp por linha)
+top3 = all_df.head(3).copy()
 
 def near_strike(price, strike, pct):
     try:
@@ -569,6 +588,7 @@ top3["alert_days"] = top3["days_to_exp"] <= dias_alerta
 
 # --- Tabela Top 3
 top3_display = top3.copy()
+top3_display["Vencimento"] = top3_display["expiration"].map(lambda d: d.strftime("%Y-%m-%d"))
 top3_display["Prêmio PUT (R$)"]   = top3_display["premio_put"].map(lambda x: f"{x:.2f}")
 top3_display["Prêmio CALL (R$)"]  = top3_display["premio_call"].map(lambda x: f"{x:.2f}")
 top3_display["Crédito/ação (R$)"] = top3_display["credito"].map(lambda x: f"{x:.2f}")
@@ -579,6 +599,7 @@ top3_display["p_dentro (%)"] = (100*top3_display["p_inside"]).map(lambda x: f"{x
 
 def tag_risco(row):
     tags = []
+    # usa limites efetivos atuais
     if row["poe_leg_max"] > (max_poe_leg * 0.9):
         tags.append("⚠️ prob. por perna alta")
     if row["poe_comb"] > (max_poe_comb * 0.9):
@@ -590,6 +611,7 @@ def tag_risco(row):
 top3_display["Notas"] = top3.apply(tag_risco, axis=1)
 
 top3_display = top3_display[[
+    "Vencimento",
     "PUT","Kp",
     "CALL","Kc",
     "Prêmio PUT (R$)","Prêmio CALL (R$)","Crédito/ação (R$)",
@@ -600,10 +622,10 @@ top3_display = top3_display[[
 ]]
 top3_display.rename(columns={"Kp":"Strike PUT","Kc":"Strike CALL"}, inplace=True)
 
-st.subheader("🏆 Top 3 (prioriza prêmio com baixa probabilidade)")
+st.subheader("🏆 Top 3 (todas as datas selecionadas)")
 st.dataframe(top3_display, use_container_width=True, hide_index=True)
 
-# 9) Cartões detalhados
+# 9) Cartões detalhados (com vencimento por linha)
 st.markdown("—")
 st.subheader("📋 Recomendações detalhadas")
 
@@ -637,8 +659,9 @@ for i, rw in top3.iterrows():
     premio_total = rw["credito"] * effective_contract_size * lots
 
     with st.container(border=True):
+        venc_txt = rw["expiration"].strftime("%Y-%m-%d")
         st.markdown(
-            f"**#{rank} → Vender PUT `{rw['PUT']}` (Strike={rw['Kp']:.2f}) + CALL `{rw['CALL']}` (Strike={rw['Kc']:.2f})**"
+            f"**#{rank} → Vender PUT `{rw['PUT']}` (Kp={rw['Kp']:.2f}) + CALL `{rw['CALL']}` (Kc={rw['Kc']:.2f}) · Vencimento: `{venc_txt}`**"
         )
         c1, c2, c3 = st.columns([1.0, 1.2, 1.2])
         c1.metric("Crédito/ação", format_brl(rw["credito"]))
@@ -671,15 +694,15 @@ for i, rw in top3.iterrows():
             f"`{rw['credito']:.2f} × {effective_contract_size} × {lots}` → **{format_brl(premio_total)}**"
         )
 
-        # Alertas
-        if bus_days <= dias_alerta:
-            st.info(f"⏳ Faltam {bus_days} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
+        # Alertas (usando days_to_exp da própria linha)
+        if rw["days_to_exp"] <= dias_alerta:
+            st.info(f"⏳ Faltam {int(rw['days_to_exp'])} dia(s) para o vencimento. Considere realizar lucro se capturou ~{meta_captura}% do crédito.")
         if abs(spot - rw["Kc"]) <= rw["Kc"] * (janela_pct/100.0):
             st.warning("🔺 CALL ameaçada (preço perto do strike da CALL). Sugestão: recomprar a CALL para travar o ganho.")
         if abs(spot - rw["Kp"]) <= rw["Kp"] * (janela_pct/100.0):
             st.warning("🔻 PUT ameaçada (preço perto do strike da PUT). Sugestão: avaliar recompra da PUT ou rolagem.")
 
-        # “Por que #1?” — apenas para o primeiro card
+        # “Por que #1?” — apenas para o primeiro card do ranking geral
         if rank == 1:
             with st.expander("🔎 Por que esta ficou em #1?"):
                 largura = rw["Kc"] - rw["Kp"]
@@ -697,7 +720,7 @@ for i, rw in top3.iterrows():
                     unsafe_allow_html=True
                 )
 
-        # Explicações por sugestão
+        # Explicações por sugestão (mantido)
         with st.expander("📘 O que significa cada item?"):
             premio_put_txt   = format_brl(rw["premio_put"])
             premio_call_txt  = format_brl(rw["premio_call"])
